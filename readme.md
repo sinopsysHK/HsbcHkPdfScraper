@@ -76,7 +76,7 @@ $ pip install camelot
 
 Packages are also available with conda (but my env is messed up so didn't managed to accomodate with version conflicts)
 
-Then copy source code from [github]()
+Then copy source code from [github](https://github.com/sinopsysHK/HsbcHkPdfScraper)
 
 ### Todos
 
