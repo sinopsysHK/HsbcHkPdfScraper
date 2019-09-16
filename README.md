@@ -7,7 +7,7 @@ At least working on my 4 last years own statements without errors
 
 from command line
 ```sh
-$ python HsbcStatementHKScraper <pdf file path> <outputdir>
+$ python hsbcpdfscraper/accountstatement.py <pdf file path> <outputdir>
 ```
 write a csv file in <outputdir> with file name pattern [account number]-[statement date yyymm].csv
 
