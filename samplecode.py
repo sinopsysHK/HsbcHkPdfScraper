@@ -1,6 +1,6 @@
-from HsbcAccStatementHKScraper import Statement
+from hsbcpdfscraper import accountstatement
 
-st = Statement(".\\working\\mypdffile.pdf")
+st = accountstatement.Statement(".\\working\\mypdffile.pdf")
 st.process()
 
 json = st.get_json()

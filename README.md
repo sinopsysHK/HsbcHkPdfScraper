@@ -13,9 +13,9 @@ write a csv file in <outputdir> with file name pattern [account number]-[stateme
 
 can also be used from code
 ```python
-from HsbcAccStatementHKScraper import Statement
+from hsbcpdfscraper import accountstatement
 
-st = Statement(".\\working\\mypdffile.pdf")
+st = accountstatement.Statement(".\\working\\mypdffile.pdf")
 st.process()
 
 json = st.get_json()
@@ -76,8 +76,12 @@ $ pip install camelot
 
 Packages are also available with conda (but my env is messed up so didn't managed to accomodate with version conflicts)
 
-Then copy source code from [github](https://github.com/sinopsysHK/HsbcHkPdfScraper)
+Then copy source code from [github](https://github.com/sinopsysHK/HsbcHkPdfScraper).
+Install in python local repository by launching:
 
+```sh
+$ python setup.py install
+```
 ### Todos
 
  - Write (MORE) Tests
