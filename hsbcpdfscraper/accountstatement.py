@@ -11,10 +11,8 @@ import pandas as pd
 import datetime
 import json
 
-
-logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("hsbcstatement")
-logger.setLevel(logging.INFO)
+
 
 class ScraperException(Exception):
     pass
@@ -148,6 +146,7 @@ class TableZone:
         begin_yup = section.ybot
         end_page = section.next.page
         end_ybot = section.next.yup
+        top_margin = 690
         bottom_margin = 69
         if begin_page == end_page:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, end_ybot))
@@ -155,7 +154,8 @@ class TableZone:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, bottom_margin))
             for i in range(end_page - begin_page -1):
                 self.chunks.append(TableZone.Chunk(begin_page + i, self.page_height, bottom_margin))
-            self.chunks.append(TableZone.Chunk(end_page, self.page_height, end_ybot))
+            if end_ybot < top_margin:
+                self.chunks.append(TableZone.Chunk(end_page, self.page_height, end_ybot))
         logger.debug("Section of account '{}' has {} chuncks".format(account, len(self.chunks)))
 
     def get_tables_format(self, pdf):
@@ -477,17 +477,19 @@ class Statement:
             if res is not None:
                 sections[k] = res
                 available_sections.append(res)
+                logger.debug(f'section [{k}] ("{v.text}"") found: {res}')
             else:
                 logger.warning(f'Section [{k}] ("{v.text}"") not found in statement')
         # set ending of each sections
         ptfsum_section.next = top_section
         logger.debug(f'section Summary:{ptfsum_section}')
-        self.ptfsum_zone = TableZoneSum(self.page_height, self.page_width, ptfsum_section, None, self.st_date)
+        self.ptfsum_zone = TableZoneSum(self.page_height, self.page_width, ptfsum_section, 'summary', self.st_date)
         self.ptfsum_zone.get_tables_format(self.pdf)
+        logger.debug("proceed accounts sections...")
         for k, v in sections.items():
             next = v.get_next(available_sections)
             available_sections.remove(next)
-            logger.debug(f'section {k}:{v}')
+            logger.debug(f'section {k}:{v} followed by {next}')
             self.zones[k] = Statement.zone_types[k](self.page_height, self.page_width, v, k, self.st_date)
             self.zones[k].get_tables_format(self.pdf)
 
@@ -538,6 +540,9 @@ def get_page(obj):
           return get_page(obj.getparent())
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
+    logger.setLevel(logging.INFO)
+
     pdfpath = sys.argv[1]
     outputdir = sys.argv[2] if len(sys.argv) > 2 else ".\\outputs\\"
     st = Statement(sys.argv[1])
