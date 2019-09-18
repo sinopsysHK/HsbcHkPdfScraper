@@ -10,6 +10,7 @@ import logging
 import pandas as pd
 import datetime
 import json
+#import matplotlib.pyplot as plt
 
 logger = logging.getLogger("hsbcstatement")
 
@@ -197,13 +198,16 @@ class TableZone:
                         pages=str(c.page),
                         flavor="stream",
                         table_areas=[f'0, {c.yup}, {self.page_width}, {c.ybot}'],
-                        columns=[cols])
+                        columns=[cols],
+                        split_text=True)
             logger.debug('found tables: {} - {}'.format(tables[0].parsing_report, tables[0].shape))
             if self.table is None:
                 self.table = tables[0].df[1:]
             else:
                 self.table = pd.concat([self.table, tables[0].df[1:]])
-        logger.debug("the table:\n{}".format(self.table.head()))
+        logger.debug("the table:\n{}".format(self.table.head().to_string()))
+        #camelot.plot(tables[0], kind='grid')
+        #plt.show()
         self.clean_table()
 
     def clean_table(self):
@@ -241,18 +245,23 @@ class TableZoneHkd(TableZone):
         shape = self.table.shape
         logger.debug(shape)
         # get first line as the previous balance
+        startidx=1
         previous_balance_tag = self.table.iloc[0,1]
         val = self.table.iloc[0, 4]
         logger.debug("value to use as a float: [{}]".format(val))
         previous_balance = float(val.replace(",", "")) if isinstance(val, str) else val
+        if self.table.iloc[0, 5] == 'DR':
+            previous_balance = -previous_balance
         if previous_balance_tag != "B/F BALANCE":
-            raise TemplateException("First line should contain B/F BALANCE vs [{}]".format(previous_balance_tag))
+            # if first line is not "B/F BALANCE" likely this is the first statement or previous balance was 0
+            previous_balance = 0
+            startidx = 0
         self.statement['previous_balance'][self.account]['HKD'] = previous_balance
 
         dt = ""
         desc = ""
         new_balance = previous_balance
-        for index, row in self.table.iloc[1:, :].iterrows():
+        for index, row in self.table.iloc[startidx:, :].iterrows():
             if row[0] != "": dt = self.extract_date(row[0])
             desc = (desc + " " if desc != "" else "") + row[1]
             credit = row[2]
@@ -269,7 +278,7 @@ class TableZoneHkd(TableZone):
             new_balance += amount
             self.statement['entries'].append({
                 'account': self.account,
-                'date': dt.strftime("%d/%m/%Y"),
+                'date': dt,
                 'description': desc,
                 'currency': "HKD",
                 'amount': amount
@@ -302,6 +311,8 @@ class TableZoneFcy(TableZone):
                     # When this is the first movement on a currency there is no previous balance
                     previous_balance_tag = row[2]
                     previous_balance = float(row[5].replace(",", ""))
+                    if row[6] == 'DR':
+                        previous_balance = -previous_balance
                     if previous_balance_tag != "B/F BALANCE":
                         raise TemplateException(
                             "First line should contain B/F BALANCE vs [{}]".format(previous_balance_tag))
@@ -321,11 +332,13 @@ class TableZoneFcy(TableZone):
             elif debit is not None and debit != "":
                 amount = -float(debit.replace(",", ""))
             else:
+                if desc == "B/F BALANCE":
+                    desc = ""
                 continue
 
             new_balance += amount
             self.statement['entries'].append({
-                'date': dt.strftime("%d/%m/%Y"),
+                'date': dt,
                 'account': self.account,
                 'description': desc,
                 'currency': ccy,
@@ -424,6 +437,7 @@ class Statement:
         AccountTypes.FCYCURRENT: TableZoneFcy,
     }
     ph_end_section = TextLabel(text="Total Relationship Balance", height=10)
+    ph_fend_section = TextLabel(text="Important Notice", height=10)
 
     def __init__(self, pdfpath):
         self.pdfpath = pdfpath
@@ -463,7 +477,11 @@ class Statement:
 
         end_section = Statement.ph_end_section.query(self.pdf)
         if end_section is None:
-            raise TemplateException(f'End section "{Statement.ph_end_section.text}" not found in statement')
+            # On first statement there is no Total relationship balance so fallback on Important Notice
+            end_section = Statement.ph_fend_section.query(self.pdf)
+            if end_section is None:
+                raise TemplateException(
+                    f'End section "{Statement.ph_end_section.text}" and "{Statement.ph_fend_section.text}" not found in statement')
         if end_section.yup > 679:
             # if end section is top of page force it as bottom of previous page
             end_section.page = end_section.page - 1
@@ -508,7 +526,7 @@ class Statement:
     def merge_all(self):
         self.statement = {
             'main_account': self.account_number,
-            'statement_date': self.st_date.strftime('%d/%m/%Y'),
+            'statement_date': self.st_date,
             'previous_balance': {},
             'entries': []
         }
@@ -525,13 +543,17 @@ class Statement:
 
     def get_df(self):
         df = pd.DataFrame(self.statement['entries'])
-        df['st_date'] = self.st_date.strftime("%d/%m/%Y")
+        df['st_date'] = self.st_date
         df['main_account'] = self.account_number
         df['file_path'] = self.pdfpath
         return df
 
     def get_json(self):
-        return json.dumps(self.statement)
+        def myconverter(o):
+            if isinstance(o, datetime.datetime):
+                return o.strftime("%d/%m/%Y")
+
+        return json.dumps(self.statement, default = myconverter)
 
 def get_page(obj):
     if isinstance(obj.layout, pdfminer.layout.LTPage):
