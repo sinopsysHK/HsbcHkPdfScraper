@@ -1,13 +1,14 @@
-from hsbcpdfscraper import accountstatement
 import logging
+import json
+
+from hsbcpdf import scraper
 
 logging.basicConfig(level=logging.WARNING)
-logging.getLogger('hsbcstatement').setLevel(logging.DEBUG)
+logging.getLogger('hsbcpdf').setLevel(logging.DEBUG)
 
-st = accountstatement.Statement(".\\working\\mypdffile.pdf")
-st.process()
+st = scraper.get_statement('mystatement.pdf')
 
-json = st.get_json()
+js = st.get_json()
 df = st.get_df()
 
-print(json)
+print("Statement JSON: \n%s" % str(json.dumps(js, indent=2)))

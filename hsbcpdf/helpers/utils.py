@@ -55,6 +55,9 @@ class TextBox(PdfComponent):
             for v in res:
                 logger.debug(v.layout)
             raise TemplateException(f'Several ({len(res)}) text boxes in "{self.bbox}"" place holder')
+        elif len(res) == 0:
+            raise TemplateException(f'No text boxes in "{self.bbox}"" place holder')
+        logger.debug(res)
         return res[0].layout.get_text().strip()
 
 

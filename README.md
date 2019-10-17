@@ -7,16 +7,15 @@ At least working on my 4 last years own statements without errors
 
 from command line
 ```sh
-$ python hsbcpdfscraper/accountstatement.py <pdf file path> <outputdir>
+$ python hsbcpdf\scraper.py <pdf file path> <outputdir>
 ```
-write a csv file in <outputdir> with file name pattern [account number]-[statement date yyymm].csv
+write a csv file in <outputdir> with file name pattern [statement type]-[account number]-[statement date yyymm].csv
 
 can also be used from code
 ```python
-from hsbcpdfscraper import accountstatement
+from hsbcpdf import scraper
 
-st = accountstatement.Statement(".\\working\\mypdffile.pdf")
-st.process()
+st = scraper.get_statement(r".\working\mypdffile.pdf")
 
 json = st.get_json()
 df = st.get_df()
@@ -26,6 +25,7 @@ returns json file with following structure:
 ```json
 {
     "main_account": "XXX-YYYYYY-ZZZ",
+    "type": "BANK", # or "CARD"
     "statement_date": "25/05/2019",
     "previous_balance": {
         "HKDSavings": {
@@ -37,6 +37,18 @@ returns json file with following structure:
         "FCYSavings": {
             "USD": 32000000.00, 
             "EUR": 57000000.00
+        }
+    }, 
+    "new_balance": {
+        "HKDSavings": {
+            "HKD": 100000000.00
+        }, 
+        "HKDCurrent": {
+            "HKD": 9000000.00
+        }, 
+        "FCYSavings": {
+            "USD": 30000000.00, 
+            "EUR": 59000000.00
         }
     }, 
     "entries": [
@@ -59,7 +71,7 @@ returns json file with following structure:
 
 # New Features!
 
-  - working
+  - supports also Credit Card statements
 
 
 
@@ -85,7 +97,6 @@ $ python setup.py install
 ### Todos
 
  - Write (MORE) Tests
- - Add support for Credit Card Statement
 
 License
 ----

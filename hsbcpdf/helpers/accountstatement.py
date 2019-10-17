@@ -114,7 +114,10 @@ class TableZone:
         pass
 
     def extract_date(self, strdt):
-        return datetime.datetime.strptime(strdt + ' ' + str(self.st_date.year), '%d %b %Y')
+        res = datetime.datetime.strptime(strdt + ' ' + str(self.st_date.year), '%d %b %Y')
+        if res > self.st_date:
+            res = res.replace(year=self.st_date.year - 1)
+        return res
 
     def check_consistency(self, summary):
         new_balances = self.statement['new_balance'][self.account]
@@ -178,7 +181,8 @@ class TableZoneHkd(TableZone):
             new_balance += amount
             self.statement['entries'].append({
                 'account': self.account,
-                'date': dt,
+                'post_date': dt,
+                'transaction_date': dt,
                 'description': desc,
                 'currency': "HKD",
                 'amount': amount
@@ -238,7 +242,8 @@ class TableZoneFcy(TableZone):
 
             new_balance += amount
             self.statement['entries'].append({
-                'date': dt,
+                'post_date': dt,
+                'transaction_date': dt,
                 'account': self.account,
                 'description': desc,
                 'currency': ccy,

@@ -1,5 +1,5 @@
 import logging
-import os
+import os, sys
 from pathlib import Path
 
 from pdfquery.cache import FileCache
@@ -29,3 +29,19 @@ def get_statement(pdfpath):
             return gen(pdfpath, pdf).process()
     logger.error("provided pdf not recognized as HSBC HK (card or account) Statement")
     raise utils.ScraperException(f'"{pdfpath}" not recognized as a HSBC HK (card or account) Statement')
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logging.getLogger().addHandler(handler)
+
+    logger.setLevel(logging.INFO)
+
+    pdfpath = sys.argv[1]
+    outputdir = Path(sys.argv[2] if len(sys.argv) > 2 else ".\\outputs\\")
+    st = get_statement(pdfpath)
+    df = st.get_df()
+    logger.debug(df.head())
+    df.to_csv(outputdir / f'{st.st_type}-{st.account_number}-{st.st_date.strftime("%Y%m")}.csv', index=False)

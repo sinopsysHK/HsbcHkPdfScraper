@@ -10,6 +10,9 @@ import pandas as pd
 from pdfquery.cache import FileCache
 import pdfquery
 import pdfminer
+import camelot
+import numpy as np
+import re
 
 from .helpers.utils import *
 from .helpers.accountstatement import *
@@ -18,6 +21,8 @@ logger = logging.getLogger("hsbcpdf.statements")
 
 
 class Base:
+
+    st_type = None
 
     def __init__(self, pdfpath, pdf = None):
         self.pdfpath = pdfpath
@@ -45,9 +50,11 @@ class Base:
 
     def merge_all(self):
         self.statement = {
+            'type' : self.st_type,
             'main_account': self.account_number,
             'statement_date': self.st_date,
             'previous_balance': {},
+            'new_balance': {},
             'entries': []
         }
 
@@ -75,6 +82,8 @@ class Base:
 
 class Account(Base):
 
+    st_type = "BANK"
+
     ph_acc_number = TextBox(page=1, bbox="486,700,538,712")
     ph_st_date = TextBox(page=1, bbox="394,651,538,660")
     ph_ptfsum_section = TextLabel(text="Portfolio Summary", height=10)
@@ -96,7 +105,7 @@ class Account(Base):
     ph_fend_section = TextLabel(text="Important Notice", height=10)
 
     def __init__(self, pdfpath, pdf = None):
-        Base.__init__(self, pdfpath, pdf)
+        super().__init__(pdfpath, pdf)
         self.ptfsum_zone = None
         self.zones = {}
 
@@ -169,7 +178,15 @@ class Account(Base):
                 v.check_consistency(self.ptfsum_zone.summary)
 
     def merge_all(self):
-        Base.merge_all(self)
+        super().merge_all()
+        self.statement['new_balance'] = {
+            acc: {
+                ccy : vals['ccy']
+                for ccy, vals in ccys.items()
+            }
+            for acc, ccys in self.ptfsum_zone.summary['new_acc_balances'].items()
+        }
+
         for v in self.zones.values():
             for k in v.statement['previous_balance'].keys():
                 self.statement['previous_balance'][k] = v.statement['previous_balance'][k]
@@ -177,7 +194,118 @@ class Account(Base):
 
 
 class Card(Base):
-    pass
+
+    st_type = "CARD"
+
+    OPENING_BAL = "OPENING BALANCE"
+    PREVIOUS_BAL = "PREVIOUS BALANCE"
+    CLOSING_BAL = "CLOSING BALANCE"
+    STMT_BAL = "STATEMENT BALANCE"
+
+    ph_acc_number = TextBox(page=1, bbox="325,681,561,694")
+    ph_st_date = TextBox(page=1, bbox="326,633,446,649")
+    ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
+    page1_tabbox = "60,617,570,339"
+    pagex_tabbox = "60,666,570,77"
+    columns = "97, 135, 477"
+
+    def _extract_amount(self, samount):
+        res = - float(samount.replace(",","").replace("CR",""))
+        if "CR" in samount:
+            res = -res
+        return res
+
+    def _extract_date(self, strdt):
+        res = datetime.datetime.strptime(strdt + str(self.st_date.year), '%d%b%Y')
+        if res > self.st_date:
+            res = res.replace(year=self.st_date.year - 1)
+        return res
+
+    def __init__(self, pdfpath, pdf=None):
+        Base.__init__(self, pdfpath, pdf)
+        self.old_balance = None
+        self.new_balance = None
+        self.entries = None
+
+    def match_template(self):
+        super().match_template()
+
+        # get statement related account number
+        self.account_number = self.ph_acc_number.query(self.pdf)
+
+        #get statement date
+        strdate = self.ph_st_date.query(self.pdf)
+        self.st_date = datetime.datetime.strptime(strdate, '%d %b %Y')
+        self.currency = re.search('Amount +\((?P<currency>[A-Z]{3})\)$', self.ph_st_currency.query(self.pdf).strip()).group('currency')
+        logger.info("process card statement of {} on {}".format(self.account_number, self.st_date))
+
+    def extract_tables(self):
+        tp = camelot.read_pdf(
+            self.pdfpath,
+            pages="1",
+            flavor="stream",
+            table_areas=[self.page1_tabbox],
+            columns=[self.columns]
+        )[0].df[1:]
+        others = camelot.read_pdf(
+            self.pdfpath,
+            pages="2-end",
+            flavor="stream",
+            table_areas=[self.pagex_tabbox],
+            columns=[self.columns]
+        )
+        for i in others:
+            tp = pd.concat([tp, i.df[1:]])
+        logger.debug(f'full table: {tp.to_string()}')
+        tp = tp.apply(lambda x: x.str.strip())
+        tp = pd.concat([tp, tp.iloc[:, [0, 2, 3]].shift(-1)], axis=1)[tp[3] != ""]
+        tp.columns = ['post_date', 'transaction_date', 'desc', 'amount', 'nextpostD', 'nextdesc', 'nextamount']
+        tp.iloc[-1]['nextdesc'] = ""
+        tp['description'] = tp.apply(
+            lambda row: " ".join([row.desc, row.nextdesc]) if row.post_date != "" and row.nextpostD == "" and row.nextamount == "" else row.desc,
+            #concat_desc,
+            axis=1
+        )
+        logger.debug(f'full concat table columns: {tp.columns}')
+        logger.debug("full concat table: {}".format(tp[['post_date', 'desc', 'description', 'amount', 'nextpostD', 'nextdesc', 'nextamount']].to_string()))
+
+        # First row must contains previous balance
+        if tp.iloc[0]['description'] not in (self.OPENING_BAL, self.PREVIOUS_BAL):
+            raise TemplateException(
+                "First line of table should be '{}' instead of {}".format(self.PREVIOUS_BAL, tp.iloc[0]['description']))
+        self.old_balance = self._extract_amount(tp.iloc[0]['amount'])
+
+        # Last Row should contain statement balance
+        if tp.iloc[-1]['description'] not in (self.CLOSING_BAL, self.STMT_BAL):
+            raise TemplateException(
+                "Last line of table should be '{}' instead of {}".format(self.STMT_BAL, tp.iloc[-1]['description']))
+        self.new_balance = self._extract_amount(tp.iloc[-1]['amount'])
+
+        self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']][1:-1]
+        self.entries['post_date'] = self.entries['post_date'].apply(self._extract_date)
+        self.entries['transaction_date'] = self.entries['transaction_date'].apply(self._extract_date)
+        self.entries['amount'] = self.entries['amount'].apply(self._extract_amount)
+        self.entries['currency'] = self.currency
+        self.entries['account'] = 'default'
+        logger.debug("final table: {}".format(self.entries.to_string()))
+
+    def check_consistency(self):
+        tot = self.old_balance
+        tot +=  self.entries['amount'].sum()
+        if round(tot, 2) != round(self.new_balance, 2):
+            raise ConsistencyException(
+                "Mismatching balance {}/{} ({} diff)".format(
+                    round(tot, 2),
+                    round(self.new_balance, 2),
+                    round(self.new_balance - tot, 2)
+                )
+            )
+
+    def merge_all(self):
+        super().merge_all()
+        self.statement['previous_balance'] = {'default': {self.currency: self.old_balance}}
+        self.statement['new_balance'] = {'default': {self.currency: self.new_balance}}
+        self.statement['entries'] = self.entries.to_dict('record')
 
 
 if __name__ == "__main__":
