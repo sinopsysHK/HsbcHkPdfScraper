@@ -14,75 +14,27 @@ import camelot
 import numpy as np
 import re
 
-from .helpers.utils import *
-from .helpers.accountstatement import *
+from hsbcpdf.helpers.utils import *
+from hsbcpdf.helpers.accountstatement import *
 
-logger = logging.getLogger("hsbcpdf.statements")
-
-
-class Base:
-
-    st_type = None
-
-    def __init__(self, pdfpath, pdf = None):
-        self.pdfpath = pdfpath
-        self.pdf = pdf
-        if self.pdf is None:
-            self.pdf = pdfquery.PDFQuery(pdfpath)
-            self.pdf.load()
-
-        self.page_height = None
-        self.page_width = None
-        self.account_number = None
-        self.st_date = None
-
-    def match_template(self):
-        # get file pages format
-        p = self.pdf.pq('LTPage[page_index="0"]')[0]
-        self.page_height = p.layout.height
-        self.page_width = p.layout.width
-
-    def extract_tables(self):
-        pass
-
-    def check_consistency(self):
-        pass
-
-    def merge_all(self):
-        self.statement = {
-            'type' : self.st_type,
-            'main_account': self.account_number,
-            'statement_date': self.st_date,
-            'previous_balance': {},
-            'new_balance': {},
-            'entries': []
-        }
-
-    def process(self):
-        self.match_template()
-        self.extract_tables()
-        self.check_consistency()
-        self.merge_all()
-        return self
-
-    def get_df(self):
-        df = pd.DataFrame(self.statement['entries'])
-        df['st_date'] = self.st_date
-        df['main_account'] = self.account_number
-        df['file_path'] = self.pdfpath
-        return df
-
-    def get_json(self):
-        def myconverter(o):
-            if isinstance(o, datetime.datetime):
-                return o.strftime("%d/%m/%Y")
-
-        return json.dumps(self.statement, default = myconverter)
+logger = logging.getLogger("hsbcpdf.hsbchk.statements")
 
 
-class Account(Base):
+
+
+class HsbcStatement(BaseStatement):
+
+    st_bank = 'hsbchk'
+
+    _BANK_SIGNATURE = [
+        TextLabel("The Hongkong and Shanghai Banking Corporation Limited")
+    ]
+
+
+class Account(HsbcStatement):
 
     st_type = "BANK"
+    _TYPE_SIGNATURE = [ TextLabel("Financial Overview") ]
 
     ph_acc_number = TextBox(page=1, bbox="486,700,538,712")
     ph_st_date = TextBox(page=1, bbox="394,651,538,660")
@@ -106,18 +58,19 @@ class Account(Base):
 
     def __init__(self, pdfpath, pdf = None):
         super().__init__(pdfpath, pdf)
+        self.logger = logging.getLogger('hsbchk.statement.account')
         self.ptfsum_zone = None
         self.zones = {}
 
     def match_template(self):
-        Base.match_template(self)
+        HsbcStatement.match_template(self)
 
         # get statement related account number
         self.account_number = Account.ph_acc_number.query(self.pdf)
 
         #get statement date
         strdate = Account.ph_st_date.query(self.pdf)
-        logger.info("process statement of {} on {}".format(self.account_number, strdate))
+        self.logger.info("process statement of {} on {}".format(self.account_number, strdate))
         self.st_date = datetime.datetime.strptime(strdate, '%d %B %Y')
 
         # get structuring sections
@@ -149,19 +102,19 @@ class Account(Base):
             if res is not None:
                 sections[k] = res
                 available_sections.append(res)
-                logger.debug(f'section [{k}] ("{v.text}"") found: {res}')
+                self.logger.debug(f'section [{k}] ("{v.text}"") found: {res}')
             else:
-                logger.warning(f'Section [{k}] ("{v.text}"") not found in statement')
+                self.logger.warning(f'Section [{k}] ("{v.text}"") not found in statement')
         # set ending of each sections
         ptfsum_section.next = top_section
-        logger.debug(f'section Summary:{ptfsum_section}')
+        self.logger.debug(f'section Summary:{ptfsum_section}')
         self.ptfsum_zone = TableZoneSum(self.page_height, self.page_width, ptfsum_section, 'summary', self.st_date)
         self.ptfsum_zone.get_tables_format(self.pdf)
-        logger.debug("proceed accounts sections...")
+        self.logger.debug("proceed accounts sections...")
         for k, v in sections.items():
             next = v.get_next(available_sections)
             available_sections.remove(next)
-            logger.debug(f'section {k}:{v} followed by {next}')
+            self.logger.debug(f'section {k}:{v} followed by {next}')
             self.zones[k] = Account.zone_types[k](self.page_height, self.page_width, v, k, self.st_date)
             self.zones[k].get_tables_format(self.pdf)
 
@@ -193,9 +146,10 @@ class Account(Base):
             self.statement['entries'] = self.statement['entries'] + v.statement['entries']
 
 
-class Card(Base):
+class Card(HsbcStatement):
 
     st_type = "CARD"
+    _TYPE_SIGNATURE = [ TextLabel("Card type", first=True) ]
 
     OPENING_BAL = "OPENING BALANCE"
     PREVIOUS_BAL = "PREVIOUS BALANCE"
@@ -222,7 +176,8 @@ class Card(Base):
         return res
 
     def __init__(self, pdfpath, pdf=None):
-        Base.__init__(self, pdfpath, pdf)
+        HsbcStatement.__init__(self, pdfpath, pdf)
+        self.logger = logging.getLogger('hsbchk.statements.card')
         self.old_balance = None
         self.new_balance = None
         self.entries = None
@@ -237,7 +192,7 @@ class Card(Base):
         strdate = self.ph_st_date.query(self.pdf)
         self.st_date = datetime.datetime.strptime(strdate, '%d %b %Y')
         self.currency = re.search('Amount +\((?P<currency>[A-Z]{3})\)$', self.ph_st_currency.query(self.pdf).strip()).group('currency')
-        logger.info("process card statement of {} on {}".format(self.account_number, self.st_date))
+        self.logger.info("process card statement of {} on {}".format(self.account_number, self.st_date))
 
     def extract_tables(self):
         tp = camelot.read_pdf(
@@ -256,7 +211,7 @@ class Card(Base):
         )
         for i in others:
             tp = pd.concat([tp, i.df[1:]])
-        logger.debug(f'full table: {tp.to_string()}')
+        self.logger.debug(f'full table: {tp.to_string()}')
         tp = tp.apply(lambda x: x.str.strip())
         tp = pd.concat([tp, tp.iloc[:, [0, 2, 3]].shift(-1)], axis=1)[tp[3] != ""]
         tp.columns = ['post_date', 'transaction_date', 'desc', 'amount', 'nextpostD', 'nextdesc', 'nextamount']
@@ -266,8 +221,8 @@ class Card(Base):
             #concat_desc,
             axis=1
         )
-        logger.debug(f'full concat table columns: {tp.columns}')
-        logger.debug("full concat table: {}".format(tp[['post_date', 'desc', 'description', 'amount', 'nextpostD', 'nextdesc', 'nextamount']].to_string()))
+        self.logger.debug(f'full concat table columns: {tp.columns}')
+        self.logger.debug("full concat table: {}".format(tp[['post_date', 'desc', 'description', 'amount', 'nextpostD', 'nextdesc', 'nextamount']].to_string()))
 
         # First row must contains previous balance
         if tp.iloc[0]['description'] not in (self.OPENING_BAL, self.PREVIOUS_BAL):
@@ -287,7 +242,7 @@ class Card(Base):
         self.entries['amount'] = self.entries['amount'].apply(self._extract_amount)
         self.entries['currency'] = self.currency
         self.entries['account'] = 'default'
-        logger.debug("final table: {}".format(self.entries.to_string()))
+        self.logger.debug("final table: {}".format(self.entries.to_string()))
 
     def check_consistency(self):
         tot = self.old_balance
@@ -306,6 +261,10 @@ class Card(Base):
         self.statement['previous_balance'] = {'default': {self.currency: self.old_balance}}
         self.statement['new_balance'] = {'default': {self.currency: self.new_balance}}
         self.statement['entries'] = self.entries.to_dict('record')
+
+
+class HsbcFactory(BaseFactory):
+    _scrapers = [Account, Card]
 
 
 if __name__ == "__main__":

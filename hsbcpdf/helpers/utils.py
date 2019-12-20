@@ -69,7 +69,7 @@ class TextLabel(PdfComponent):
         self.height = height
         self.first = first
 
-    def query(self, pdf, after=None, before=None):
+    def querys(self, pdf, after=None, before=None):
         res = pdf.pq(f'LTTextLineHorizontal:contains("{self.text}")')
         if self.height is not None:
             res = res.filter(lambda i: self.height + 1 > float(this.get('height', 0)) > self.height - 1)
@@ -78,6 +78,10 @@ class TextLabel(PdfComponent):
             res = [s for s in res if s < before]
         if after is not None:
             res = [s for s in res if s > after]
+        return res
+
+    def query(self, pdf, after=None, before=None):
+        res = self.querys(pdf, after, before)
         if len(res) > 1 and not self.first:
             raise TemplateException(f'Several ({len(res)} occurence found of "{self.text}"')
         if len(res) == 0:
@@ -121,3 +125,14 @@ class Section:
 
     def __str__(self):
         return f'<page[{self.page}] {self.yup} <-> {self.ybot}' + (f' - page[{self.next.page}] {self.next.yup} <-> {self.next.ybot}>' if self.next is not None else '>')
+
+
+class Bbox:
+    def __init__(self, xleft, xright, ybot, ytop):
+        self.xleft = xleft
+        self.xright = xright
+        self.ybot = ybot
+        self.ytop = ytop
+
+    def to_camellot_bbox(self):
+        return "{},{},{},{}".format(self.xleft, self.ytop, self.xright, self.ybot)

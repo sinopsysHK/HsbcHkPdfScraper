@@ -6,10 +6,16 @@ import datetime
 
 import camelot
 import pandas as pd
+import os
+import json
+
+from pdfquery.cache import FileCache
+import pdfquery
+import pdfminer
 
 from .utils import *
 
-logger = logging.getLogger("statement.Account")
+logger = logging.getLogger("hsbcpdf.helpers.accountstatements")
 
 class EnumSumAccountTypes:
     HKDSAVINGS = 'HKD Savings'
@@ -319,3 +325,108 @@ class TableZoneSum(TableZone):
 
         if round(amount, 2) != round(total, 2):
             raise ConsistencyException("Mismatching Summary balance on {}/{}".format(round(amount, 2), round(total, 2)))
+
+class BaseFactory:
+
+    _scrapers = []
+
+    @classmethod
+    def get_scraper(cls, pdfpath, pdf=None):
+        if not os.path.exists(pdfpath):
+            raise ScraperException(f'"{pdfpath}" file not found')
+        if not os.path.isfile(pdfpath):
+            raise ScraperException(f'"{pdfpath}" not a file')
+        pdf = pdfquery.PDFQuery(pdfpath)
+        pdf.load()
+
+        for s in cls._scrapers:
+            if s.probe_bank(pdf) and s.probe_type(pdf):
+                logger.debug("pdf file matches {}.{}".format(s.st_bank, s.st_type))
+                return s(pdfpath, pdf)
+
+
+class BaseStatement:
+
+    _BANK_SIGNATURE = []
+    _TYPE_SIGNATURE = []
+
+    st_bank = None
+    st_type = None
+
+    @classmethod
+    def probe_bank(cls, pdf):
+        for elem in cls._BANK_SIGNATURE:
+            if len(elem.querys(pdf)) == 0:
+                logger.debug("pdf file does not matches bank {}".format(cls.st_bank))
+                return False
+        logger.debug("pdf file matches bank {}".format(cls.st_bank))
+        return True
+
+    @classmethod
+    def probe_type(cls, pdf):
+        for elem in cls._TYPE_SIGNATURE:
+            if len(elem.querys(pdf)) == 0:
+                logger.debug("pdf file does not matches type {}".format(cls.st_type))
+                return False
+        logger.debug("pdf file matches type {}".format(cls.st_type))
+        return True
+
+    def __init__(self, pdfpath, pdf = None):
+        self.logger = logging.getLogger("hsbcpdf.helpers.basestatement")
+        self.pdfpath = pdfpath
+        self.pdf = pdf
+        if self.pdf is None:
+            self.pdf = pdfquery.PDFQuery(pdfpath)
+            self.pdf.load()
+
+        self.page_height = None
+        self.page_width = None
+        self.account_number = None
+        self.st_date = None
+
+    def match_template(self):
+        # get file pages format
+        p = self.pdf.pq('LTPage[page_index="0"]')[0]
+        self.page_height = p.layout.height
+        self.page_width = p.layout.width
+        self.logger.debug("page format: WxH = {}x{}".format(
+            self.page_width,
+            self.page_height
+        ))
+
+    def extract_tables(self):
+        pass
+
+    def check_consistency(self):
+        pass
+
+    def merge_all(self):
+        self.statement = {
+            'type' : self.st_type,
+            'main_account': self.account_number,
+            'statement_date': self.st_date,
+            'previous_balance': {},
+            'new_balance': {},
+            'entries': []
+        }
+
+    def process(self):
+        self.match_template()
+        self.extract_tables()
+        self.check_consistency()
+        self.merge_all()
+        return self
+
+    def get_df(self):
+        df = pd.DataFrame(self.statement['entries'])
+        df['st_date'] = self.st_date
+        df['main_account'] = self.account_number
+        df['file_path'] = self.pdfpath
+        return df
+
+    def get_json(self):
+        def myconverter(o):
+            if isinstance(o, datetime.datetime):
+                return o.strftime("%d/%m/%Y")
+
+        return json.dumps(self.statement, default = myconverter)
