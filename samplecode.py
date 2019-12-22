@@ -1,12 +1,12 @@
 import logging
 import json
 
-from hsbcpdf import scraper
+from hsbcpdf.scraper import ScraperFactory
 
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger('hsbcpdf').setLevel(logging.DEBUG)
 
-st = scraper.get_statement('mystatement.pdf')
+st = ScraperFactory.get_scraper('mysgstatement5.pdf').process()
 
 js = st.get_json()
 df = st.get_df()

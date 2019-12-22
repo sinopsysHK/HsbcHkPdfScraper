@@ -35,17 +35,26 @@ class Account(SocgenStatement):
 
     st_type = "BANK"
     _TYPE_SIGNATURE = [ TextLabel("RELEVÉ DE COMPTE") ]
-    
+
     PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
     NEW_BAL = "NOUVEAU SOLDE"
     
     ph_acc_number = TextBox(page=1, bbox="410,782,570,799")
-    ph_st_date = TextBox(page=1, bbox="420,765,568,782")
+    ph_st_date = TextBox(
+        page=1,
+        bbox="420,765,568,788",
+        above=TextLabel(text="envoi n°",first=True))
     
     #ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_end_section = TextLabel(text=NEW_BAL, height=10)
-    page1_tabbox = Bbox(xleft=25, xright=570, ytop=509, ybot=95)
-    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=95)
+    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=13)
+    ph_end_section = TextLabel(text="TOTAUX DES MOUVEMENTS", height=10)
+    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
+    ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
+    ph_tab_footer = HLine(xleft = 20, xright = 575, hmin = 0.1, hmax = 1, wmin=525)
+    ph_tab_columns = VLine(yup=800, ybot=0, hmin=60)
+    new_bal_bbox  = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
+    page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
+    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
     columns = "78, 130, 413, 489"
 
     
@@ -79,21 +88,50 @@ class Account(SocgenStatement):
         #get statement date
         strdate = re.search("du .* au (.*)", self.ph_st_date.query(self.pdf).strip()).group(1)
         self.st_date = datetime.datetime.strptime(strdate, '%d/%m/%Y')
-        self.logger.info("process card statement of {} on {}".format(self.account_number, self.st_date))
+
+        # get new balance
+        new_bal_lab = self.ph_new_bal_lab.query(self.pdf)
+        line_up = self.ph_new_bal_rect.query(self.pdf, before=new_bal_lab)
+        self.logger.debug("found upper line {}".format(line_up.ybot))
+        line_bot = self.ph_new_bal_rect.querys(self.pdf, after=new_bal_lab)[0]
+        self.logger.debug("found lower line {}".format(line_bot.yup))
+        self.new_bal_bbox.ytop = line_up.yup
+        self.new_bal_bbox.ybot = line_bot.yup
+        newbalstr = TextBox(page=new_bal_lab.page, bbox=self.new_bal_bbox).query(self.pdf)
+        self.logger.info("found new balance string {}".format(newbalstr))
+        self.new_balance = self._extract_amount(None, newbalstr.replace(' ', '').strip())
+
+        self.logger.info("process card statement of {} on {} with new balance {}EUR".format(
+            self.account_number,
+            self.st_date,
+            self.new_balance
+        ))
 
     def extract_tables(self):
+        begin_section = self.ph_begin_sect.query(self.pdf)
+        footers = self.ph_tab_footer.querys(self.pdf, after=begin_section, page=1)
+        for idx, f in enumerate(footers):
+            self.logger.debug("footer {} at {}".format(idx, f.obj.layout))
+        footer = footers[-1]
         end_section = self.ph_end_section.query(self.pdf)
+        p1_bbox = Bbox(orig=self.page1_tabbox, ytop=begin_section.ybot + 2, ybot=footer.ybot+2)
+
+        # get columns
+        cols = self.ph_tab_columns.query(self.pdf, page=1)
+        xcols = [e.layout.x0 for e in cols]
+        self.logger.debug("columns found: {} {}".format(cols, xcols))
         self.logger.debug("Table ends page {} with y={}".format(end_section.page, end_section.yup))
         if end_section.page == 1:
-            self.page1_tabbox.ybot = end_section.ybot
+            p1_bbox.ybot = end_section.yup
+        self.logger.debug("extract first tab in {}".format(p1_bbox))
         tp = camelot.read_pdf(
             self.pdfpath,
             pages="1",
             flavor="stream",
-            table_areas=[self.page1_tabbox.to_camellot_bbox()],
+            table_areas=[p1_bbox.to_camellot_bbox()],
             columns=[self.columns]
         )[0].df[1:]
-        self.logger.debug(f'First trunck of table: {tp.to_string()}')
+        self.logger.debug(f'First trunck of table: \n{tp.to_string()}')
 
         if end_section.page > 1:
             if end_section.page > 2:
@@ -106,20 +144,21 @@ class Account(SocgenStatement):
                 )
                 for i in others:
                     tp = pd.concat([tp, i.df])
-                    self.logger.debug(f'Next trunck of table: {i.df.to_string()}')
+                    self.logger.debug(f'Next trunck of table [{self.pagex_tabbox.ytop} - {self.pagex_tabbox.ybot}]: \n{i.df.to_string()}')
 
-            self.pagex_tabbox.ybot = end_section.ybot
+            last_tab_bbox = Bbox(orig=self.pagex_tabbox, ybot=end_section.yup)
             last_tab = camelot.read_pdf(
                 self.pdfpath,
                 pages=str(end_section.page),
                 flavor="stream",
-                table_areas=[self.pagex_tabbox.to_camellot_bbox()],
+                table_areas=[last_tab_bbox.to_camellot_bbox()],
                 columns=[self.columns]
             )[0].df
             tp = pd.concat([tp, last_tab])
             self.logger.debug(f'Last trunck of table: {last_tab.to_string()}')
 
         tp.columns = ['post_date', 'transaction_date', 'description', 'debit', 'credit']
+        tp = tp[~tp.credit.str.contains("suite >>>")]
 
         tp = tp.apply(lambda x: x.str.strip())
         tp['amount'] = tp.apply(
@@ -135,11 +174,6 @@ class Account(SocgenStatement):
                 "First line of table should be '{}' instead of {}".format(self.PREVIOUS_BAL, tp.iloc[0]['description']))
         self.old_balance = tp.iloc[0]['amount']
 
-        if self.NEW_BAL not in tp.iloc[-1]['description']:
-            raise TemplateException(
-                "Last line of table should be '{}' instead of {}".format(self.NEW_BAL, tp.iloc[-1]['description']))
-        self.new_balance = tp.iloc[-1]['amount']
-
         '''
         # Last Row should contain statement balance
         if tp.iloc[-1]['description'] not in (self.CLOSING_BAL, self.STMT_BAL):
@@ -148,7 +182,7 @@ class Account(SocgenStatement):
         self.new_balance = self._extract_amount(tp.iloc[-1]['amount'])
         '''
 
-        self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']][1:-2]
+        self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']][1:]
         self.entries['idx'] = self.entries.reset_index().index
         select = self.entries['post_date'].eq("")
         self.entries.loc[select, ['idx', 'post_date']] = None

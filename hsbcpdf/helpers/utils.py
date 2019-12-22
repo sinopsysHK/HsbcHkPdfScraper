@@ -11,6 +11,10 @@ class ScraperException(Exception):
     pass
 
 
+class UnrecognizedException(ScraperException):
+    pass
+
+
 class TemplateException(ScraperException):
     pass
 
@@ -34,22 +38,34 @@ class PdfComponent:
     def __init__(self):
         pass
 
-    def query(self, pdf):
+    def query(self, pdf, page=None):
         pass
 
 
 class TextBox(PdfComponent):
     __doc__ = "query for text in specific area given by bbox"
 
-    def __init__(self, bbox, page=None):
+    def __init__(self, bbox, page=None, bellow=None, above=None):
         self.page = page
         self.bbox = bbox
+        if isinstance(bbox, str):
+            self.bbox = Bbox()
+            self.bbox.xleft, self.bbox.ybot, self.bbox.xright, self.bbox.ytop = map(int, bbox.split(','))
+        self.bellow = bellow
+        self.above = above
 
-    def query(self, pdf):
+    def query(self, pdf, page=None):
+        if self.above:
+            above = self.above.query(pdf).yup if self.above else self.bbox.ybot
+            self.bbox.ybot = above - 3
+        if self.bellow:
+            bellow = self.bellow.query(pdf).ybot if self.bellow else self.bbox.ytop
+            self.bbox.ytop = bellow + 3
+
         q = ""
         if self.page is not None:
             q = f'LTPage[page_index="{self.page - 1 }"] '
-        q += f'LTTextLineHorizontal:in_bbox("{self.bbox}")'
+        q += f'LTTextLineHorizontal:in_bbox("{self.bbox.to_pdfq_bbox()}")'
         res = pdf.pq(q)
         if len(res) > 1:
             for v in res:
@@ -69,7 +85,7 @@ class TextLabel(PdfComponent):
         self.height = height
         self.first = first
 
-    def querys(self, pdf, after=None, before=None):
+    def querys(self, pdf, after=None, before=None, page=None):
         res = pdf.pq(f'LTTextLineHorizontal:contains("{self.text}")')
         if self.height is not None:
             res = res.filter(lambda i: self.height + 1 > float(this.get('height', 0)) > self.height - 1)
@@ -80,8 +96,8 @@ class TextLabel(PdfComponent):
             res = [s for s in res if s > after]
         return res
 
-    def query(self, pdf, after=None, before=None):
-        res = self.querys(pdf, after, before)
+    def query(self, pdf, after=None, before=None, page=None):
+        res = self.querys(pdf, after, before, page)
         if len(res) > 1 and not self.first:
             raise TemplateException(f'Several ({len(res)} occurence found of "{self.text}"')
         if len(res) == 0:
@@ -89,6 +105,100 @@ class TextLabel(PdfComponent):
             return None
         return res[0]
 
+
+class HLine(PdfComponent):
+    __doc__ = "Locate a section defined from a horizontal Line"
+
+    def __init__(self, xleft, xright, hmin=None, hmax=None, wmin=None, wmax=None, first=False):
+        self.xleft = xleft
+        self.xright = xright
+        self.hmin = hmin
+        self.hmax = hmax
+        self.wmin = wmin
+        self.wmax = wmax
+        self.first = first
+
+    def querys(self, pdf, after=None, before=None, page=None):
+        res = pdf.pq(
+            f'LTLine:in_bbox("{self.xleft}, 0, {self.xright}, {pdf.get_layout(0).height}")'
+        ).filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height')) < self.hmax)
+                               and (self.wmin is None or float(this.get('width')) > self.wmin)
+                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+                 )
+        res += pdf.pq(
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTRect:in_bbox("{self.xleft}, 0, {self.xright}, {pdf.get_layout(0).height}")'
+        ).filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height')) < self.hmax)
+                               and (self.wmin is None or float(this.get('width')) > self.wmin)
+                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+                 )
+
+        res = [Section(s) for s in res]
+        if before is not None:
+            res = [s for s in res if s < before]
+        if after is not None:
+            res = [s for s in res if s > after]
+        return res
+
+    def query(self, pdf, after=None, before=None, page=None):
+        res = self.querys(pdf, after, before, page)
+        if len(res) > 1 and not self.first:
+            for r in res:
+                logger.debug("line p{}: {}".format(r.page, r.obj.layout.bbox))
+            raise TemplateException(f'Several ({len(res)} lines matching')
+        if len(res) == 0:
+            logger.debug(f'no section found for line')
+            return None
+        return res[0]
+
+
+class VLine(PdfComponent):
+    __doc__ = "Locate a section defined from a horizontal Line"
+
+    def __init__(self, yup, ybot, hmin=None, hmax=None, wmin=None, wmax=None, first=False):
+        self.yup = yup
+        self.ybot = ybot
+        self.hmin = hmin
+        self.hmax = hmax
+        self.wmin = wmin
+        self.wmax = wmax
+        self.first = first
+
+    def querys(self, pdf, after=None, before=None, page=None):
+        res = pdf.pq(
+            f'LTLine:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
+        ).filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height')) < self.hmax)
+                               and (self.wmin is None or float(this.get('width')) > self.wmin)
+                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+                 )
+        res += pdf.pq(
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTRect:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
+        ).filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height')) < self.hmax)
+                               and (self.wmin is None or float(this.get('width')) > self.wmin)
+                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+                 )
+
+        return res
+
+    def query(self, pdf, after=None, before=None, page=None):
+        res = self.querys(pdf, after, before, page)
+        if len(res) > 1 and not self.first:
+            for r in res:
+                logger.debug("line p{}: {}".format(r.page, r.obj.layout.bbox))
+            raise TemplateException(f'Several ({len(res)} lines matching')
+        if len(res) == 0:
+            logger.debug(f'no section found for line')
+            return None
+        return res[0]
 
 class Section:
     def __init__(self, obj):
@@ -128,11 +238,27 @@ class Section:
 
 
 class Bbox:
-    def __init__(self, xleft, xright, ybot, ytop):
-        self.xleft = xleft
-        self.xright = xright
-        self.ybot = ybot
-        self.ytop = ytop
+    def __init__(self, xleft=None, xright=None, ybot=None, ytop=None, orig=None):
+        if orig:
+            self.xleft = orig.xleft
+            self.xright = orig.xright
+            self.ybot = orig.ybot
+            self.ytop = orig.ytop
+        if xleft:
+            self.xleft = xleft
+        if xright:
+            self.xright = xright
+        if ybot:
+            self.ybot = ybot
+        if ytop:
+            self.ytop = ytop
 
     def to_camellot_bbox(self):
         return "{},{},{},{}".format(self.xleft, self.ytop, self.xright, self.ybot)
+
+    # "420,765,568,782"
+    def to_pdfq_bbox(self):
+        return "{},{},{},{}".format(self.xleft, self.ybot, self.xright, self.ytop)
+
+    def __repr__(self):
+        return "[({},{}),({},{})]".format(self.xleft, self.ybot, self.xright, self.ytop)

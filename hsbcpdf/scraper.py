@@ -2,7 +2,7 @@ import logging
 import os, sys
 from pathlib import Path
 
-
+from .helpers import utils
 from .helpers import accountstatement
 from .hsbchk.statements import HsbcFactory
 from .societegenerale.statements import SocgenFactory
@@ -16,7 +16,7 @@ class ScraperFactory(accountstatement.BaseFactory):
             s = f.get_scraper(pdfpath)
             if s:
                 return s
-        raise utils.ScraperException(f'"{pdfpath}" unrecognized Statement format')
+        raise utils.UnrecognizedException(f'"{pdfpath}" unrecognized Statement format')
 
 
 if __name__ == "__main__":
