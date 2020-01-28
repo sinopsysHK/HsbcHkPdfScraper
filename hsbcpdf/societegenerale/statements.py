@@ -51,13 +51,30 @@ class Account(SocgenStatement):
     ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
     ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
     ph_tab_footer = HLine(xleft = 20, xright = 575, hmin = 0.1, hmax = 1, wmin=525)
-    ph_tab_columns = VLine(yup=800, ybot=0, hmin=60)
+    ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
     new_bal_bbox  = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
     page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
     pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
     columns = "78, 130, 413, 489"
 
-    
+    def _find_columns(self):
+        footer = HLine(0, 595, wmin=500, ymax=90).querys(self.pdf, page=1)
+        footer = footer[-1]
+        ph_begin_sect = TextLabel(text="SOLDE PRÉCÉDENT", height=10).query(self.pdf, page=1)
+
+        tab_vl = HLine(0, 595, 0, 0.8, 500).querys(self.pdf, page=1, before=footer, after=ph_begin_sect)
+        cols = VLine(yup=tab_vl[0].yup + 1, ybot=tab_vl[1].ybot - 1, hmin=10, wmin=0, wmax=0.8).querys(self.pdf, page=1)
+        xcols = sorted(list(dict.fromkeys([e.layout.x0 for e in cols])))
+        self.page1_tabbox.xleft = self.pagex_tabbox.xleft = xcols[0]
+        self.page1_tabbox.xright = self.pagex_tabbox.xright = xcols[-1]
+        self.page1_tabbox.ybot = ybot=tab_vl[1].yup
+        self.columns = ",".join(map(str, xcols[1:-1]))
+
+    def _find_top(self):
+        # called only if pages>1
+        lines = HLine(0, 595, 0, 1, 500, ymax=780, ymin=500).querys(self.pdf, page=2)
+        self.pagex_tabbox.ytop = lines[0].yup
+
     def _extract_amount(self, debit, credit):
         amount = None
         if debit:
@@ -73,7 +90,7 @@ class Account(SocgenStatement):
 
     def __init__(self, pdfpath, pdf=None):
         SocgenStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.card')
+        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.account')
         self.old_balance = None
         self.new_balance = None
         self.entries = None
@@ -91,12 +108,12 @@ class Account(SocgenStatement):
 
         # get new balance
         new_bal_lab = self.ph_new_bal_lab.query(self.pdf)
-        line_up = self.ph_new_bal_rect.query(self.pdf, before=new_bal_lab)
+        line_up = self.ph_new_bal_rect.query(self.pdf, page=new_bal_lab.page, before=new_bal_lab)
         self.logger.debug("found upper line {}".format(line_up.ybot))
-        line_bot = self.ph_new_bal_rect.querys(self.pdf, after=new_bal_lab)[0]
+        line_bot = self.ph_new_bal_rect.querys(self.pdf, page=new_bal_lab.page, after=new_bal_lab)[0]
         self.logger.debug("found lower line {}".format(line_bot.yup))
         self.new_bal_bbox.ytop = line_up.yup
-        self.new_bal_bbox.ybot = line_bot.yup
+        self.new_bal_bbox.ybot = line_bot.ybot
         newbalstr = TextBox(page=new_bal_lab.page, bbox=self.new_bal_bbox).query(self.pdf)
         self.logger.info("found new balance string {}".format(newbalstr))
         self.new_balance = self._extract_amount(None, newbalstr.replace(' ', '').strip())
@@ -117,9 +134,8 @@ class Account(SocgenStatement):
         p1_bbox = Bbox(orig=self.page1_tabbox, ytop=begin_section.ybot + 2, ybot=footer.ybot+2)
 
         # get columns
-        cols = self.ph_tab_columns.query(self.pdf, page=1)
-        xcols = [e.layout.x0 for e in cols]
-        self.logger.debug("columns found: {} {}".format(cols, xcols))
+        self._find_columns()
+        self.logger.debug("columns found: {}".format(self.columns))
         self.logger.debug("Table ends page {} with y={}".format(end_section.page, end_section.yup))
         if end_section.page == 1:
             p1_bbox.ybot = end_section.yup
@@ -129,18 +145,23 @@ class Account(SocgenStatement):
             pages="1",
             flavor="stream",
             table_areas=[p1_bbox.to_camellot_bbox()],
-            columns=[self.columns]
+            columns=[self.columns],
+            strip_text='*',
+            row_tol= 5
         )[0].df[1:]
         self.logger.debug(f'First trunck of table: \n{tp.to_string()}')
 
         if end_section.page > 1:
+            self._find_top()
             if end_section.page > 2:
                 others = camelot.read_pdf(
                     self.pdfpath,
                     pages="2-{}".format(end_section.page-1),
                     flavor="stream",
                     table_areas=[self.pagex_tabbox.to_camellot_bbox()],
-                    columns=[self.columns]
+                    columns=[self.columns],
+                    strip_text='*',
+                    row_tol= 5
                 )
                 for i in others:
                     tp = pd.concat([tp, i.df])
@@ -152,10 +173,12 @@ class Account(SocgenStatement):
                 pages=str(end_section.page),
                 flavor="stream",
                 table_areas=[last_tab_bbox.to_camellot_bbox()],
-                columns=[self.columns]
+                columns=[self.columns],
+                strip_text='*',
+                row_tol= 5
             )[0].df
             tp = pd.concat([tp, last_tab])
-            self.logger.debug(f'Last trunck of table: {last_tab.to_string()}')
+            self.logger.debug(f'Last trunck of table (page:{end_section.page} in {last_tab_bbox.to_camellot_bbox()}): \n{last_tab.to_string()}')
 
         tp.columns = ['post_date', 'transaction_date', 'description', 'debit', 'credit']
         tp = tp[~tp.credit.str.contains("suite >>>")]
@@ -165,7 +188,7 @@ class Account(SocgenStatement):
             lambda r: self._extract_amount(r['debit'].replace(' ', ''), r['credit'].replace(' ', ''))
             , axis=1
         )
-        self.logger.debug(f'full table: {tp.to_string()}')
+        self.logger.debug(f'full table: \n{tp.to_string()}')
         self.logger.debug(f'full concat table columns: {tp.columns}')
 
         # First row must contains previous balance
@@ -185,9 +208,10 @@ class Account(SocgenStatement):
         self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']][1:]
         self.entries['idx'] = self.entries.reset_index().index
         select = self.entries['post_date'].eq("")
-        self.entries.loc[select, ['idx', 'post_date']] = None
+        self.entries.loc[select, ['idx', 'post_date', 'transaction_date']] = None
         #self.entries.loc[select, 'idx'] = None
-        self.entries[['idx', 'post_date', 'amount']] = self.entries[['idx', 'post_date', 'amount']].fillna(method='ffill')
+        self.entries[['idx', 'post_date', 'transaction_date', 'amount']] = self.entries[['idx', 'post_date', 'transaction_date', 'amount']].fillna(method='ffill')
+        self.logger.debug("before merge table: \n{}".format(self.entries.to_string()))
         self.entries = self.entries.groupby(['idx', 'post_date', 'transaction_date', 'amount'])['description'].apply('\n'.join).reset_index()
         self.logger.debug("merge table: \n{}".format(self.entries.to_string()))
         self.entries['transaction_date'] = self.entries.apply(lambda r: r['transaction_date'] or r['post_date'], axis=1)

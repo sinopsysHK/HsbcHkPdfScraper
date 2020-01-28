@@ -55,6 +55,7 @@ class TextBox(PdfComponent):
         self.above = above
 
     def query(self, pdf, page=None):
+        page = page or self.page
         if self.above:
             above = self.above.query(pdf).yup if self.above else self.bbox.ybot
             self.bbox.ybot = above - 3
@@ -63,16 +64,18 @@ class TextBox(PdfComponent):
             self.bbox.ytop = bellow + 3
 
         q = ""
-        if self.page is not None:
-            q = f'LTPage[page_index="{self.page - 1 }"] '
+        if page is not None:
+            q = f'LTPage[page_index="{page - 1 }"] '
         q += f'LTTextLineHorizontal:in_bbox("{self.bbox.to_pdfq_bbox()}")'
         res = pdf.pq(q)
         if len(res) > 1:
             for v in res:
                 logger.debug(v.layout)
-            raise TemplateException(f'Several ({len(res)}) text boxes in "{self.bbox}"" place holder')
+            raise TemplateException(f'Several ({len(res)}) text boxes in "{self.bbox}"" place holder'
+                                    + (f' in page {page}' if page else ''))
         elif len(res) == 0:
-            raise TemplateException(f'No text boxes in "{self.bbox}"" place holder')
+            raise TemplateException(f'No text boxes in "{self.bbox}"" place holder'
+                                    + f' in page {page}' if page else '')
         logger.debug(res)
         return res[0].layout.get_text().strip()
 
@@ -109,35 +112,43 @@ class TextLabel(PdfComponent):
 class HLine(PdfComponent):
     __doc__ = "Locate a section defined from a horizontal Line"
 
-    def __init__(self, xleft, xright, hmin=None, hmax=None, wmin=None, wmax=None, first=False):
+    def __init__(self, xleft, xright, hmin=None, hmax=None, wmin=None, wmax=None, ymin=None, ymax=None, first=False):
         self.xleft = xleft
         self.xright = xright
         self.hmin = hmin
         self.hmax = hmax
         self.wmin = wmin
         self.wmax = wmax
+        self.ymin = ymin
+        self.ymax = ymax
         self.first = first
 
     def querys(self, pdf, after=None, before=None, page=None):
         res = pdf.pq(
-            f'LTLine:in_bbox("{self.xleft}, 0, {self.xright}, {pdf.get_layout(0).height}")'
-        ).filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) > self.hmin)
-                               and (self.hmax is None or float(this.get('height')) < self.hmax)
-                               and (self.wmin is None or float(this.get('width')) > self.wmin)
-                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTLine:in_bbox("{self.xleft}, {self.ymin or 0}, {self.xright}, {self.ymax or pdf.get_layout(0).height}")'
+        )
+
+        res = res.filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height')) <= self.hmax)
+                               and (self.wmin is None or float(this.get('width')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width')) <= self.wmax)
                  )
         res += pdf.pq(
             (f'LTPage[page_index="{page-1}"] ' if page else '') \
-            + f'LTRect:in_bbox("{self.xleft}, 0, {self.xright}, {pdf.get_layout(0).height}")'
-        ).filter(lambda i:
+            + f'LTRect:in_bbox("{self.xleft}, {self.ymin or 0}, {self.xright}, {self.ymax or pdf.get_layout(0).height}")'
+        )
+        res = res.filter(lambda i:
                                (self.hmin is None or float(this.get('height')) > self.hmin)
                                and (self.hmax is None or float(this.get('height')) < self.hmax)
                                and (self.wmin is None or float(this.get('width')) > self.wmin)
                                and (self.wmax is None or float(this.get('width')) < self.wmax)
+                               and (self.ymin is None or float(this.get('y0')) > self.ymin)
+                               and (self.ymax is None or float(this.get('y0')) < self.ymax)
                  )
 
-        res = [Section(s) for s in res]
+        res = sorted([Section(s) for s in res], key=lambda section: section.yup, reverse=True)
         if before is not None:
             res = [s for s in res if s < before]
         if after is not None:
@@ -170,21 +181,24 @@ class VLine(PdfComponent):
 
     def querys(self, pdf, after=None, before=None, page=None):
         res = pdf.pq(
-            f'LTLine:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
-        ).filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) > self.hmin)
-                               and (self.hmax is None or float(this.get('height')) < self.hmax)
-                               and (self.wmin is None or float(this.get('width')) > self.wmin)
-                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTLine:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
+        )
+        res = res.filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height')) <= self.hmax)
+                               and (self.wmin is None or float(this.get('width')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width')) <= self.wmax)
                  )
         res += pdf.pq(
             (f'LTPage[page_index="{page-1}"] ' if page else '') \
             + f'LTRect:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
-        ).filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) > self.hmin)
-                               and (self.hmax is None or float(this.get('height')) < self.hmax)
-                               and (self.wmin is None or float(this.get('width')) > self.wmin)
-                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+        )
+        res = res.filter(lambda i:
+                               (self.hmin is None or float(this.get('height')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height')) <= self.hmax)
+                               and (self.wmin is None or float(this.get('width')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width')) <= self.wmax)
                  )
 
         return res
