@@ -69,11 +69,13 @@ class TextBox(PdfComponent):
         q += f'LTTextLineHorizontal:in_bbox("{self.bbox.to_pdfq_bbox()}")'
         res = pdf.pq(q)
         if len(res) > 1:
+            logger.debug(f"non unique query: '{q}':")
             for v in res:
                 logger.debug(v.layout)
             raise TemplateException(f'Several ({len(res)}) text boxes in "{self.bbox}"" place holder'
                                     + (f' in page {page}' if page else ''))
         elif len(res) == 0:
+            logger.debug(f"unmatched query: '{q}'")
             raise TemplateException(f'No text boxes in "{self.bbox}"" place holder'
                                     + f' in page {page}' if page else '')
         logger.debug(res)
