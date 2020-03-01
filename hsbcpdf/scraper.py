@@ -6,9 +6,10 @@ from .helpers import utils
 from .helpers import accountstatement
 from .hsbchk.statements import HsbcFactory
 from .societegenerale.statements import SocgenFactory
+from .hsbcfr.statements import HsbcFrFactory
 
 class ScraperFactory(accountstatement.BaseFactory):
-    _factories = [ HsbcFactory, SocgenFactory ]
+    _factories = [ HsbcFactory, SocgenFactory, HsbcFrFactory ]
 
     @classmethod
     def get_scraper(cls, pdfpath):
