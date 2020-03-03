@@ -224,8 +224,8 @@ class VLine(PdfComponent):
             + f'LTCurve:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
         )
         res = res.filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) >= self.hmin)
-                               and (self.hmax is None or float(this.get('height')) <= self.hmax)
+                               (self.hmin is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) <= self.hmax)
                                and (self.wmin is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) >= self.wmin)
                                and (self.wmax is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) <= self.wmax)
                  )
