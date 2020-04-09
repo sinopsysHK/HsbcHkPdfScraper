@@ -118,8 +118,6 @@ class HsbcFrStatement(BaseStatement):
         self.intialpath=self.pdfpath
         self.pdfpath=str(self.cleanpdfpath)
 
-
-
     def _find_top(self):
         # called only if pages>1
         lines = HLine(0, 595, 0, 1, 20).querys(self.pdf, page=2)
@@ -223,10 +221,11 @@ class HsbcFrStatement(BaseStatement):
                 columns=[self.columns],
                 strip_text='*',
                 row_tol=5
-            )[0].df[1 if self.fl_skip_first_tab_raw else 0:]
-            tp = pd.concat([tp, last_tab])
+            )[0].df
+            last_tab = last_tab[1 if self.fl_skip_first_tab_raw and len(last_tab) > 1  else 0:]
             self.logger.debug(
                 f'Last trunck of table (page:{end_section.page} in {last_tab_bbox.to_camellot_bbox()}): \n{last_tab.to_string()}')
+            tp = pd.concat([tp, last_tab])
 
         tp.columns = self.st_columns
         for r in self.rows_to_remove:
@@ -318,38 +317,51 @@ class Account(HsbcFrStatement):
     st_type = "BANK"
     _TYPE_SIGNATURE = [ TextLabel("Votre Relevé de Compte") ]
 
-    PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
-    NEW_BAL = "NOUVEAU SOLDE"
+    PREVIOUS_BAL = "SOLDE DE DEBUT DE PERIODE"
+    NEW_BAL = "SOLDE DE FIN DE PERIODE"
     
-    ph_acc_number = TextBox(page=1, bbox="410,782,570,799")
+    ph_acc_number = TextBox(page=1, bbox="100,655,340,669")
     ph_st_date = TextBox(
         page=1,
-        bbox="420,765,568,788",
-        above=TextLabel(text="envoi n°",first=True))
+        bbox="100,640,340,655",
+        above=TextLabel(text="Relevé n°",first=True))
     
     #ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=13)
-    ph_end_section = TextLabel(text="TOTAUX DES MOUVEMENTS", height=10)
-    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
-    ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
+    ph_begin_sect = TextLabel(text="Détail des opérations", height=11, first=True)
+    ph_end_section = TextLabel(text=NEW_BAL, height=10)
+    #ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
+    #ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
     ph_tab_footer = HLine(xleft = 20, xright = 575, hmin = 0.1, hmax = 1, wmin=500)
     ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
     new_bal_bbox  = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
     page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
     pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
-    columns = "78, 130, 413, 489"
+    columns = "90, 340, 385, 400, 500"
 
+    fl_skip_first_tab_raw = True
     fl_start_prev_balance = True
-    st_columns = ['post_date', 'transaction_date', 'description', 'debit', 'credit']
+    fl_end_new_balance = True
+    fl_end_sec_excluded = False
+    st_columns = ['post_date', 'description', 'transaction_date', 'exo', 'debit', 'credit']
     rows_to_remove = [
         {'column': 'credit', 'txt':"suite >>>"},
-        {'column': 'description', 'txt': "SOLDE AU"}
+        {'column': 'description', 'txt': "TOTAL DES MOUVEMENTS"}
     ]
 
+    def _extract_date(self, strdt):
+        return datetime.datetime.strptime(strdt, '%d.%m.%Y')
+
+    def _extract_entry_date(self, strdt):
+        return datetime.datetime.strptime(
+            "{}.{}".format(strdt, self.st_date.strftime("%Y")),
+            '%d.%m.%Y'
+        )
+
     def _find_columns(self):
-        footer = HLine(0, 595, wmin=500, ymax=90).querys(self.pdf, page=1)
+        """
+        footer = HLine(0, 595, wmin=500, ymax=110).querys(self.pdf, page=1)
         footer = footer[-1]
-        ph_begin_sect = TextLabel(text="SOLDE PRÉCÉDENT", height=10).query(self.pdf, page=1)
+        ph_begin_sect = TextLabel(text=Account.PREVIOUS_BAL, height=10).query(self.pdf, page=1)
 
         tab_vl = HLine(0, 595, 0, 0.8, 500).querys(self.pdf, page=1, before=footer, after=ph_begin_sect)
         cols = VLine(yup=tab_vl[0].yup + 1, ybot=tab_vl[1].ybot - 1, hmin=10, wmin=0, wmax=0.8).querys(self.pdf, page=1)
@@ -358,6 +370,8 @@ class Account(HsbcFrStatement):
         self.page1_tabbox.xright = self.pagex_tabbox.xright = xcols[-1]
         self.page1_tabbox.ybot = ybot=tab_vl[1].yup
         self.columns = ",".join(map(str, xcols[1:-1]))
+        """
+        pass
 
     def __init__(self, pdfpath, pdf=None):
         HsbcFrStatement.__init__(self, pdfpath, pdf)
@@ -367,28 +381,17 @@ class Account(HsbcFrStatement):
         super().match_template()
 
         # get statement related account number
-        self.account_number = re.search("(\d[ \d]+\d)", self.ph_acc_number.query(self.pdf).strip()).group(1)
+        self.logger.debug("this is account [%s]", self.ph_acc_number.query(self.pdf).strip())
+        self.account_number = re.search("\w{3} +\d{5} +(\d+)", self.ph_acc_number.query(self.pdf).strip()).group(1)
 
         # get statement date
-        strdate = re.search("du .* au (.*)", self.ph_st_date.query(self.pdf).strip()).group(1)
+        self.logger.debug("this is date [%s]", self.ph_st_date.query(self.pdf).strip())
+        strdate = re.search("(Jusqu'|Du .......... )au +(.*)", self.ph_st_date.query(self.pdf).strip()).group(2)
         self.st_date = self._extract_date(strdate)
 
-        # get new balance
-        new_bal_lab = self.ph_new_bal_lab.query(self.pdf)
-        line_up = self.ph_new_bal_rect.query(self.pdf, page=new_bal_lab.page, before=new_bal_lab)
-        self.logger.debug("found upper line {}".format(line_up.ybot))
-        line_bot = self.ph_new_bal_rect.querys(self.pdf, page=new_bal_lab.page, after=new_bal_lab)[0]
-        self.logger.debug("found lower line {}".format(line_bot.yup))
-        self.new_bal_bbox.ytop = line_up.yup
-        self.new_bal_bbox.ybot = line_bot.ybot
-        newbalstr = TextBox(page=new_bal_lab.page, bbox=self.new_bal_bbox).query(self.pdf)
-        self.logger.info("found new balance string {}".format(newbalstr))
-        self.new_balance = self._extract_amount(None, newbalstr.replace(' ', '').strip())
-
-        self.logger.info("process card statement of {} on {} with new balance {}EUR".format(
+        self.logger.info("process account statement of {} on {}".format(
             self.account_number,
-            self.st_date,
-            self.new_balance
+            self.st_date
         ))
 
 
