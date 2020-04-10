@@ -382,6 +382,7 @@ class BaseStatement:
 
         self.page_height = None
         self.page_width = None
+        self.nb_pages = None
         self.account_number = None
         self.st_date = None
 
@@ -390,6 +391,7 @@ class BaseStatement:
         p = self.pdf.pq('LTPage[page_index="0"]')[0]
         self.page_height = p.layout.height
         self.page_width = p.layout.width
+        self.nb_pages = self.pdf.doc.catalog['Pages'].resolve()['Count']
         self.logger.debug("page format: WxH = {}x{}".format(
             self.page_width,
             self.page_height

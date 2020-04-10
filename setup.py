@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="hsbcpdf-sinopsys",
-    version="0.2.0",
+    version="0.2.1",
     author="SinopsysHK",
     author_email="sinofwd@gmail.com",
     description="An HSBC Hk Statement PDF extractor",
