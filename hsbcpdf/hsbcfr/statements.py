@@ -84,7 +84,7 @@ class HsbcFrStatement(BaseStatement):
 
     def __init__(self, pdfpath, pdf=None):
         BaseStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.base')
+        self.logger = logging.getLogger('hsbcpdf.hsbcfr.statements.base')
         self.accounts = []
         self.old_balance = {}
         self.new_balance = {}
@@ -139,13 +139,17 @@ class HsbcFrStatement(BaseStatement):
     def _extract_entry_date(self, strdt):
         return self._extract_date(strdt)
 
-    def extract_tables(self):
-        begin_section = self.ph_begin_sect.query(self.pdf)
+    def _get_footer(self, begin_section):
         footers = self.ph_tab_footer.querys(self.pdf, after=begin_section, page=1)
         for idx, f in enumerate(footers):
             self.logger.debug("footer {} at {}".format(idx, f.obj.layout))
         # table always ends with complete row and final line before footer line
         footer = footers[-1]
+        return footer
+
+    def extract_tables(self):
+        begin_section = self.ph_begin_sect.query(self.pdf)
+        footer = self._get_footer(begin_section)
         end_section = self.ph_end_section.query(self.pdf)
         if not end_section:
             end_section = self.ph_end_section_bis.query(self.pdf)
@@ -156,6 +160,7 @@ class HsbcFrStatement(BaseStatement):
         self.logger.debug("columns found: {}".format(self.columns))
 
         self.entries = self._extract_tables(self.account_number, begin_section, end_section, footer)
+        self.accounts.append(self.account_number)
 
     def _extract_tables(self, account, begin_section, end_section, footer):
         entries = None
@@ -304,6 +309,14 @@ class HsbcFrStatement(BaseStatement):
                         round(self.new_balance[acc] - tot, 2)
                     )
                 )
+            self.logger.debug(
+                "matching balance on acc [%s] %f/%f (%f diff)",
+                acc,
+                round(tot, 2),
+                round(self.new_balance[acc], 2),
+                round(self.new_balance[acc] - tot, 2)
+            )
+        self.logger.info("consistency check ok")
 
     def merge_all(self):
         super().merge_all()
@@ -327,7 +340,9 @@ class Account(HsbcFrStatement):
         above=TextLabel(text="Relevé n°",first=True))
     
     #ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_begin_sect = TextLabel(text="Détail des opérations", height=11, first=True)
+    #ph_begin_sect = TextLabel(text="Détail des opérations", height=11, first=True)
+    ph_begin_sect = TextLabel(text="SOLDE DE DEBUT DE PERIODE", height=11, first=True)
+
     ph_end_section = TextLabel(text=NEW_BAL, height=10)
     #ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
     #ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
@@ -338,7 +353,7 @@ class Account(HsbcFrStatement):
     pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
     columns = "90, 340, 385, 400, 500"
 
-    fl_skip_first_tab_raw = True
+    fl_skip_first_tab_raw = False
     fl_start_prev_balance = True
     fl_end_new_balance = True
     fl_end_sec_excluded = False
@@ -375,7 +390,17 @@ class Account(HsbcFrStatement):
 
     def __init__(self, pdfpath, pdf=None):
         HsbcFrStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.account')
+        self.logger = logging.getLogger('hsbcpdf.hsbcfr.statements.account')
+
+    def _get_footer(self, begin_section):
+        footer = super()._get_footer(begin_section)
+        ph_page_number = TextLabel(text="1/{}".format(self.nb_pages))
+        page_numbers = list(filter(lambda s: s.yup < 150, ph_page_number.querys(self.pdf,before=footer, page=1)))
+        if len(page_numbers) > 0:
+            footer = page_numbers[-1]
+            footer.ybot = footer.yup
+        return footer
+
 
     def match_template(self):
         super().match_template()
@@ -431,7 +456,7 @@ class Card(HsbcFrStatement):
 
     def __init__(self, pdfpath, pdf=None):
         HsbcFrStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.card')
+        self.logger = logging.getLogger('hsbcpdf.hsbcfr.statements.card')
 
     def _extract_entry_date(self, strdt):
         return datetime.datetime.strptime(strdt, '%d.%m.%y')
