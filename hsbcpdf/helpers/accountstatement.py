@@ -60,8 +60,8 @@ class TableZone:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, end_ybot))
         else:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, bottom_margin))
-            for i in range(end_page - begin_page -1):
-                self.chunks.append(TableZone.Chunk(begin_page + i, self.page_height, bottom_margin))
+            for i in range(begin_page+1, end_page):
+                self.chunks.append(TableZone.Chunk(i, self.page_height, bottom_margin))
             if end_ybot < top_margin:
                 self.chunks.append(TableZone.Chunk(end_page, self.page_height, end_ybot))
         logger.debug("Section of account '{}' has {} chuncks".format(account, len(self.chunks)))
@@ -112,7 +112,7 @@ class TableZone:
                 self.table = tables[0].df[1:]
             else:
                 self.table = pd.concat([self.table, tables[0].df[1:]])
-        logger.debug("the table:\n{}".format(self.table.head().to_string()))
+        logger.debug("the table:\n{}".format(self.table.to_string()))
         #camelot.plot(tables[0], kind='grid')
         #plt.show()
         self.clean_table()
