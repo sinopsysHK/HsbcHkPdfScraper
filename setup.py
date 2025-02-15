@@ -4,8 +4,9 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="hsbcpdf-sinopsys",
-    version="0.1.0",
+    name = "hsbcpdf-sinopsys",
+    version = "0.3.3",
+    python_requires = ">=3.10",
     author="SinopsysHK",
     author_email="sinofwd@gmail.com",
     description="An HSBC Hk Statement PDF extractor",
@@ -18,5 +19,10 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',
+    install_requires=[
+        "camelot-py==1.0.0",
+        "six==1.17.0",
+        "PyPDF2==3.0.1",
+        "pyquery==2.0.1",
+    ],
 )

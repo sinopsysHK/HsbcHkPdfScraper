@@ -58,7 +58,7 @@ class Account(HsbcStatement):
 
     def __init__(self, pdfpath, pdf = None):
         super().__init__(pdfpath, pdf)
-        self.logger = logging.getLogger('hsbchk.statement.account')
+        self.logger = logging.getLogger('hsbcpdf.hsbchk.statements.account')
         self.ptfsum_zone = None
         self.zones = {}
 
@@ -177,7 +177,7 @@ class Card(HsbcStatement):
 
     def __init__(self, pdfpath, pdf=None):
         HsbcStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbchk.statements.card')
+        self.logger = logging.getLogger('hsbcpdf.hsbchk.statements.card')
         self.old_balance = None
         self.new_balance = None
         self.entries = None

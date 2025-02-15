@@ -17,33 +17,32 @@ import re
 from hsbcpdf.helpers.utils import *
 from hsbcpdf.helpers.accountstatement import *
 
-logger = logging.getLogger("hsbcpdf.societegenerale.statements")
+from .statements import SocgenStatement
+
+logger = logging.getLogger("hsbcpdf.societegenerale.statementsv2")
 
 
 
 
-class SocgenStatement(BaseStatement):
+class SocgenV2Statement(SocgenStatement):
 
-    st_bank = 'societegenrale'
-
-    _STATEMENT_FORMAT = (595, 864)
+    _STATEMENT_FORMAT = (595, 842)
     
-    _BANK_SIGNATURE = [
-        TextLabel("Société Générale")
-    ]
-
     st_type = None
     _TYPE_SIGNATURE = []
 
     PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
     NEW_BAL = "NOUVEAU SOLDE"
 
-    TAB_UPPER = None
-    
-    ph_acc_number = TextBox(page=1, bbox="410,782,570,799")
+    #ph_acc_number = TextBox(page=1, bbox="410,782,570,799") #
+    ph_acc_number = TextBox(page=1, bbox="410,758,570,777") #
+    #ph_st_date = TextBox(
+    #    page=1,
+    #    bbox="420,765,568,788",
+    #    above=TextLabel(text="envoi n°", first=True))
     ph_st_date = TextBox(
         page=1,
-        bbox="420,765,568,788",
+        bbox="420,742,568,766",
         above=TextLabel(text="envoi n°", first=True))
 
     # ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
@@ -55,10 +54,13 @@ class SocgenStatement(BaseStatement):
     ph_tab_footer = HLine(xleft=20, xright=575, hmin=0.1, hmax=1, wmin=525)
     ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
     new_bal_bbox = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
-    page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
-    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
-    pf_footer = HLine(0, 595, wmin=500, ymax=90)
-    ph_topline = HLine(0, 595, 0, 1, 500, ymax=780, ymin=500)
+    #page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
+    page1_tabbox = Bbox(xleft=25, xright=570, ytop=483, ybot=102)
+    #pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
+    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=678, ybot=61)
+    #pf_footer = HLine(0, 595, wmin=500, ymax=90)
+    pf_footer = HLine(0, 595, wmin=500, ymax=68)
+    ph_topline = HLine(0, 595, 0, 1, 500, ymax=758, ymin=477)
     columns = "78, 130, 413, 489"
 
     st_columns = []
@@ -68,22 +70,9 @@ class SocgenStatement(BaseStatement):
     fl_end_sec_excluded = True
     rows_to_remove=[]
 
-    def _find_columns(self):
-        footer = self.pf_footer.querys(self.pdf, page=1)
-        footer = footer[-1]
-        ph_begin_sect = self.ph_begin_sect.query(self.pdf, page=1)
-
-        tab_vl = HLine(0, 595, 0, 0.8, 500).querys(self.pdf, page=1, before=footer, after=ph_begin_sect)
-        cols = VLine(yup=tab_vl[0].yup + 1, ybot=tab_vl[1].ybot - 1, hmin=10, wmin=0, wmax=0.8).querys(self.pdf, page=1)
-        xcols = sorted(list(dict.fromkeys([e.layout.x0 for e in cols])))
-        self.page1_tabbox.xleft = self.pagex_tabbox.xleft = xcols[0]
-        self.page1_tabbox.xright = self.pagex_tabbox.xright = xcols[-1]
-        self.page1_tabbox.ybot = ybot = tab_vl[1].yup
-        self.columns = ",".join(map(str, xcols[1:-1]))
-
     def __init__(self, pdfpath, pdf=None):
         BaseStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.base')
+        self.logger = logging.getLogger('hsbcpdf.societegenrale.statementsv2.base')
         self.old_balance = None
         self.new_balance = None
         self.entries = None
@@ -260,15 +249,11 @@ class SocgenStatement(BaseStatement):
         self.statement['new_balance'] = {'default': {self.currency: self.new_balance}}
         self.statement['entries'] = self.entries.to_dict('records')
 
-class Account(SocgenStatement):
+class AccountV2(SocgenV2Statement):
 
     st_type = "BANK"
     _TYPE_SIGNATURE = [ TextLabel("RELEVÉ DE COMPTE") ]
-    
-    TAB_UPPER = SocgenStatement.PREVIOUS_BAL
-    
-    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=11)
-    
+
     fl_start_prev_balance = True
     st_columns = ['post_date', 'transaction_date', 'description', 'debit', 'credit']
     rows_to_remove = [
@@ -277,8 +262,8 @@ class Account(SocgenStatement):
     ]
 
     def __init__(self, pdfpath, pdf=None):
-        SocgenStatement.__init__(self, pdfpath, pdf)
-        self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.account')
+        SocgenV2Statement.__init__(self, pdfpath, pdf)
+        self.logger = logging.getLogger('hsbcpdf.societegenrale.statementsv2.account')
 
     def match_template(self):
         super().match_template()
@@ -308,26 +293,31 @@ class Account(SocgenStatement):
             self.new_balance
         ))
 
-class Card(SocgenStatement):
+
+class CardV2(SocgenV2Statement):
 
     st_type = "CARD"
     _TYPE_SIGNATURE = [ TextLabel("RELEVÉ CARTE", first=True) ]
 
-    NEW_BAL = "TOTAL NET DES OPÉRATIONS"
-    
-    TAB_UPPER = "DÉTAIL DES OPÉRATIONS"
-    
+    #ph_acc_number = TextBox(
+    #    page=1,
+    #    bbox="0, 50, 283, 800",
+    #    bellow= TextLabel(text="Compte n°", first=True),
+    #    above= TextLabel(text="Paiements", first=True)
+    #)
     ph_acc_number = TextBox(
         page=1,
-        bbox="0, 50, 283, 800",
+        bbox="0, 50, 260, 778",
         bellow= TextLabel(text="Compte n°", first=True),
         above= TextLabel(text="Paiements", first=True)
     )
     ph_st_date_lab = TextLabel(text="Date d'arrêté", first=True)
     ph_pay_date_lab = TextLabel(text="Date de prélèvement", first=True)
 
-    ph_begin_sect = TextLabel(text=TAB_UPPER, height=11)
-    ph_end_section = TextLabel(text=NEW_BAL, height=8.5)
+    # ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
+    ph_begin_sect = TextLabel(text="DÉTAIL DES OPÉRATIONS", height=11)
+    ph_end_section = TextLabel(text=SocgenV2Statement.NEW_BAL, height=8.5)
+    ph_new_bal_lab = TextLabel(text=SocgenV2Statement.NEW_BAL, height=8.5)
     
     st_columns = ['post_date', 'description', 'debit', 'credit']
     fl_end_sec_excluded = False
@@ -339,7 +329,7 @@ class Card(SocgenStatement):
     fl_end_new_balance = True
 
     def __init__(self, pdfpath, pdf=None):
-        SocgenStatement.__init__(self, pdfpath, pdf)
+        SocgenV2Statement.__init__(self, pdfpath, pdf)
         self.logger = logging.getLogger('hsbcpdf.societegenrale.statements.card')
         self.old_balance = 0.0
 
@@ -375,8 +365,11 @@ class Card(SocgenStatement):
             self.st_date
         ))
 
-class SocgenFactory(BaseFactory):
-    _scrapers = [Account, Card]
+
+
+class SocgenV2Factory(BaseFactory):
+    _scrapers = [AccountV2, CardV2]
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
@@ -384,7 +377,7 @@ if __name__ == "__main__":
 
     pdfpath = sys.argv[1]
     outputdir = sys.argv[2] if len(sys.argv) > 2 else ".\\outputs\\"
-    st = Account(sys.argv[1])
+    st = AccountV2(sys.argv[1])
     st.process()
     df = st.get_df()
     logger.debug(df.head())

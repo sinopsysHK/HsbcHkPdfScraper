@@ -93,7 +93,15 @@ class TextLabel(PdfComponent):
     def querys(self, pdf, after=None, before=None, page=None):
         res = pdf.pq(f'LTTextLineHorizontal:contains("{self.text}")')
         if self.height is not None:
-            res = res.filter(lambda i: self.height + 1 > float(this.get('height', 0)) > self.height - 1)
+            nwres = res.filter(lambda i: self.height + 1 > float(this.get('height', 0)) > self.height - 1)
+            if not len(nwres) and len(res):
+                logger.debug('no candidate for [{}] with provided {} while {} candidates available with height={}'.format(
+                    self.text,
+                    self.height,
+                    len(res),
+                    res[0].attrib['height']
+                ))
+            res = nwres
         res = [Section(s) for s in res]
         if before is not None:
             res = [s for s in res if s < before]
@@ -132,23 +140,40 @@ class HLine(PdfComponent):
         )
 
         res = res.filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) >= self.hmin)
-                               and (self.hmax is None or float(this.get('height')) <= self.hmax)
+                               #logger.debug("hmin:%s < height:%s linewidth:%s < hmax:%s - wmin:%s < width:%s < wmax:%s" % (
+                               #    self.hmin, this.get('height'), this.get('linewidth'), self.hmax, self.wmin, this.get('width'), self.wmax)
+                               #) or
+                               (self.hmin is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) <= self.hmax)
                                and (self.wmin is None or float(this.get('width')) >= self.wmin)
                                and (self.wmax is None or float(this.get('width')) <= self.wmax)
                  )
-        res += pdf.pq(
+        resb = pdf.pq(
             (f'LTPage[page_index="{page-1}"] ' if page else '') \
             + f'LTRect:in_bbox("{self.xleft}, {self.ymin or 0}, {self.xright}, {self.ymax or pdf.get_layout(0).height}")'
         )
-        res = res.filter(lambda i:
-                               (self.hmin is None or float(this.get('height')) > self.hmin)
-                               and (self.hmax is None or float(this.get('height')) < self.hmax)
+        resb = resb.filter(lambda i:
+                               (self.hmin is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) < self.hmax)
                                and (self.wmin is None or float(this.get('width')) > self.wmin)
                                and (self.wmax is None or float(this.get('width')) < self.wmax)
                                and (self.ymin is None or float(this.get('y0')) > self.ymin)
                                and (self.ymax is None or float(this.get('y0')) < self.ymax)
                  )
+        res += resb
+        resc = pdf.pq(
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTCurve:in_bbox("{self.xleft}, {self.ymin or 0}, {self.xright}, {self.ymax or pdf.get_layout(0).height}")'
+        )
+        resc = resc.filter(lambda i:
+                               (self.hmin is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) > self.hmin)
+                               and (self.hmax is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) < self.hmax)
+                               and (self.wmin is None or float(this.get('width')) > self.wmin)
+                               and (self.wmax is None or float(this.get('width')) < self.wmax)
+                               and (self.ymin is None or float(this.get('y0')) > self.ymin)
+                               and (self.ymax is None or float(this.get('y0')) < self.ymax)
+                 )
+        res += resc
 
         res = sorted([Section(s) for s in res], key=lambda section: section.yup, reverse=True)
         if before is not None:
@@ -189,8 +214,8 @@ class VLine(PdfComponent):
         res = res.filter(lambda i:
                                (self.hmin is None or float(this.get('height')) >= self.hmin)
                                and (self.hmax is None or float(this.get('height')) <= self.hmax)
-                               and (self.wmin is None or float(this.get('width')) >= self.wmin)
-                               and (self.wmax is None or float(this.get('width')) <= self.wmax)
+                               and (self.wmin is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) <= self.wmax)
                  )
         res += pdf.pq(
             (f'LTPage[page_index="{page-1}"] ' if page else '') \
@@ -199,8 +224,18 @@ class VLine(PdfComponent):
         res = res.filter(lambda i:
                                (self.hmin is None or float(this.get('height')) >= self.hmin)
                                and (self.hmax is None or float(this.get('height')) <= self.hmax)
-                               and (self.wmin is None or float(this.get('width')) >= self.wmin)
-                               and (self.wmax is None or float(this.get('width')) <= self.wmax)
+                               and (self.wmin is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) <= self.wmax)
+                 )
+        res += pdf.pq(
+            (f'LTPage[page_index="{page-1}"] ' if page else '') \
+            + f'LTCurve:in_bbox("0, {self.ybot}, {pdf.get_layout(0).width}, {self.yup} ")'
+        )
+        res = res.filter(lambda i:
+                               (self.hmin is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) >= self.hmin)
+                               and (self.hmax is None or float(this.get('height') if float(this.get('height')) > 0.0 else this.get('linewidth')) <= self.hmax)
+                               and (self.wmin is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) >= self.wmin)
+                               and (self.wmax is None or float(this.get('width') if float(this.get('width')) > 0.0 else this.get('linewidth')) <= self.wmax)
                  )
 
         return res
