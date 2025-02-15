@@ -2,7 +2,7 @@ Camelot==12.6.29
 cffi==1.17.1
 chardet==5.2.0
 charset-normalizer==3.4.1
-cryptography==44.0.0
+cryptography==44.0.1
 cssselect==1.2.0
 decorator==5.1.1
 Elixir==0.7.1
@@ -33,7 +33,7 @@ cffi==1.17.1
 chardet==5.2.0
 charset-normalizer==3.4.1
 click==8.1.8
-cryptography==44.0.0
+cryptography==44.0.1
 cssselect==1.2.0
 decorator==5.1.1
 Elixir==0.7.1
