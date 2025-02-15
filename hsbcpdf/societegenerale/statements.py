@@ -26,6 +26,8 @@ class SocgenStatement(BaseStatement):
 
     st_bank = 'societegenrale'
 
+    _STATEMENT_FORMAT = (595, 864)
+    
     _BANK_SIGNATURE = [
         TextLabel("Société Générale")
     ]
@@ -36,6 +38,8 @@ class SocgenStatement(BaseStatement):
     PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
     NEW_BAL = "NOUVEAU SOLDE"
 
+    TAB_UPPER = None
+    
     ph_acc_number = TextBox(page=1, bbox="410,782,570,799")
     ph_st_date = TextBox(
         page=1,
@@ -43,16 +47,18 @@ class SocgenStatement(BaseStatement):
         above=TextLabel(text="envoi n°", first=True))
 
     # ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=13)
-    ph_end_section = TextLabel(text="TOTAUX DES MOUVEMENTS", height=10)
-    ph_end_section_bis = TextLabel(text=NEW_BAL, height=10)
-    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
+    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=11)
+    ph_end_section = TextLabel(text="TOTAUX DES MOUVEMENTS", height=8)
+    ph_end_section_bis = TextLabel(text=NEW_BAL, height=8)
+    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=8)
     ph_new_bal_rect = HLine(xleft=400, xright=570, hmin=1, hmax=1.5)
     ph_tab_footer = HLine(xleft=20, xright=575, hmin=0.1, hmax=1, wmin=525)
     ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
     new_bal_bbox = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
     page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
     pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
+    pf_footer = HLine(0, 595, wmin=500, ymax=90)
+    ph_topline = HLine(0, 595, 0, 1, 500, ymax=780, ymin=500)
     columns = "78, 130, 413, 489"
 
     st_columns = []
@@ -63,9 +69,9 @@ class SocgenStatement(BaseStatement):
     rows_to_remove=[]
 
     def _find_columns(self):
-        footer = HLine(0, 595, wmin=500, ymax=90).querys(self.pdf, page=1)
+        footer = self.pf_footer.querys(self.pdf, page=1)
         footer = footer[-1]
-        ph_begin_sect = TextLabel(text="SOLDE PRÉCÉDENT", height=10).query(self.pdf, page=1)
+        ph_begin_sect = self.ph_begin_sect.query(self.pdf, page=1)
 
         tab_vl = HLine(0, 595, 0, 0.8, 500).querys(self.pdf, page=1, before=footer, after=ph_begin_sect)
         cols = VLine(yup=tab_vl[0].yup + 1, ybot=tab_vl[1].ybot - 1, hmin=10, wmin=0, wmax=0.8).querys(self.pdf, page=1)
@@ -85,7 +91,7 @@ class SocgenStatement(BaseStatement):
 
     def _find_top(self):
         # called only if pages>1
-        lines = HLine(0, 595, 0, 1, 500, ymax=780, ymin=500).querys(self.pdf, page=2)
+        lines = self.ph_topline.querys(self.pdf, page=2)
         self.pagex_tabbox.ytop = lines[0].yup
 
     def _extract_amount(self, debit, credit):
@@ -168,6 +174,9 @@ class SocgenStatement(BaseStatement):
             tp = pd.concat([tp, last_tab])
             self.logger.debug(
                 f'Last trunck of table (page:{end_section.page} in {last_tab_bbox.to_camellot_bbox()}): \n{last_tab.to_string()}')
+            self.logger.debug(tp.columns)
+            self.logger.debug(tp.axes)
+
 
         tp.columns = self.st_columns
         for r in self.rows_to_remove:
@@ -208,13 +217,18 @@ class SocgenStatement(BaseStatement):
             # assume transaction_date = post date if not provided
             tp['transaction_date'] = tp['post_date']
 
-        self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']]
-        self.entries['idx'] = self.entries.reset_index().index
+        #self.entries = tp[['post_date', 'transaction_date', 'description', 'amount']]
+        self.entries = tp.loc[:,('post_date', 'transaction_date', 'description', 'amount')]
+        # number each row
+        self.entries['idx'] = range(len(self.entries))
         select = self.entries['post_date'].eq("")
         self.entries.loc[select, ['idx', 'post_date', 'transaction_date']] = None
         # self.entries.loc[select, 'idx'] = None
-        self.entries[['idx', 'post_date', 'transaction_date', 'amount']] = self.entries[
-            ['idx', 'post_date', 'transaction_date', 'amount']].fillna(method='ffill')
+        #self.entries[['idx', 'post_date', 'transaction_date', 'amount']] = self.entries[
+        #    ['idx', 'post_date', 'transaction_date', 'amount']].ffill()
+        #self.entries[['idx', 'post_date', 'transaction_date', 'amount']].ffill(inplace=True)
+        _cols = ['idx', 'post_date', 'transaction_date', 'amount']
+        self.entries.loc[:,_cols] = self.entries.loc[:,_cols].ffill()
         self.logger.debug("before merge table: \n{}".format(self.entries.to_string()))
         self.entries = self.entries.groupby(['idx', 'post_date', 'transaction_date', 'amount'])['description'].apply(
             '\n'.join).reset_index()
@@ -244,53 +258,23 @@ class SocgenStatement(BaseStatement):
         super().merge_all()
         self.statement['previous_balance'] = {'default': {self.currency: self.old_balance}}
         self.statement['new_balance'] = {'default': {self.currency: self.new_balance}}
-        self.statement['entries'] = self.entries.to_dict('record')
+        self.statement['entries'] = self.entries.to_dict('records')
 
 class Account(SocgenStatement):
 
     st_type = "BANK"
     _TYPE_SIGNATURE = [ TextLabel("RELEVÉ DE COMPTE") ]
-
-    PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
-    NEW_BAL = "NOUVEAU SOLDE"
     
-    ph_acc_number = TextBox(page=1, bbox="410,782,570,799")
-    ph_st_date = TextBox(
-        page=1,
-        bbox="420,765,568,788",
-        above=TextLabel(text="envoi n°",first=True))
+    TAB_UPPER = SocgenStatement.PREVIOUS_BAL
     
-    #ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=13)
-    ph_end_section = TextLabel(text="TOTAUX DES MOUVEMENTS", height=10)
-    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
-    ph_new_bal_rect = HLine(xleft = 400, xright = 570, hmin = 1, hmax = 1.5)
-    ph_tab_footer = HLine(xleft = 20, xright = 575, hmin = 0.1, hmax = 1, wmin=525)
-    ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
-    new_bal_bbox  = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
-    page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
-    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
-    columns = "78, 130, 413, 489"
-
+    ph_begin_sect = TextLabel(text="RELEVÉ DES OPÉRATIONS", height=11)
+    
     fl_start_prev_balance = True
     st_columns = ['post_date', 'transaction_date', 'description', 'debit', 'credit']
     rows_to_remove = [
         {'column': 'credit', 'txt':"suite >>>"},
         {'column': 'description', 'txt': "SOLDE AU"}
     ]
-
-    def _find_columns(self):
-        footer = HLine(0, 595, wmin=500, ymax=90).querys(self.pdf, page=1)
-        footer = footer[-1]
-        ph_begin_sect = TextLabel(text="SOLDE PRÉCÉDENT", height=10).query(self.pdf, page=1)
-
-        tab_vl = HLine(0, 595, 0, 0.8, 500).querys(self.pdf, page=1, before=footer, after=ph_begin_sect)
-        cols = VLine(yup=tab_vl[0].yup + 1, ybot=tab_vl[1].ybot - 1, hmin=10, wmin=0, wmax=0.8).querys(self.pdf, page=1)
-        xcols = sorted(list(dict.fromkeys([e.layout.x0 for e in cols])))
-        self.page1_tabbox.xleft = self.pagex_tabbox.xleft = xcols[0]
-        self.page1_tabbox.xright = self.pagex_tabbox.xright = xcols[-1]
-        self.page1_tabbox.ybot = ybot=tab_vl[1].yup
-        self.columns = ",".join(map(str, xcols[1:-1]))
 
     def __init__(self, pdfpath, pdf=None):
         SocgenStatement.__init__(self, pdfpath, pdf)
@@ -324,15 +308,15 @@ class Account(SocgenStatement):
             self.new_balance
         ))
 
-
 class Card(SocgenStatement):
 
     st_type = "CARD"
     _TYPE_SIGNATURE = [ TextLabel("RELEVÉ CARTE", first=True) ]
 
-    PREVIOUS_BAL = "SOLDE PRÉCÉDENT"
     NEW_BAL = "TOTAL NET DES OPÉRATIONS"
-
+    
+    TAB_UPPER = "DÉTAIL DES OPÉRATIONS"
+    
     ph_acc_number = TextBox(
         page=1,
         bbox="0, 50, 283, 800",
@@ -342,18 +326,9 @@ class Card(SocgenStatement):
     ph_st_date_lab = TextLabel(text="Date d'arrêté", first=True)
     ph_pay_date_lab = TextLabel(text="Date de prélèvement", first=True)
 
-    # ph_st_currency = TextBox(page=1, bbox="477,600,566,616")
-    ph_begin_sect = TextLabel(text="DÉTAIL DES OPÉRATIONS", height=13)
-    ph_end_section = TextLabel(text=NEW_BAL, height=10)
-    ph_new_bal_lab = TextLabel(text=NEW_BAL, height=10)
-    ph_new_bal_rect = HLine(xleft=400, xright=570, hmin=1, hmax=1.5)
-    ph_tab_footer = HLine(xleft=20, xright=575, hmin=0.1, hmax=1, wmin=525)
-    ph_tab_columns = VLine(yup=800, ybot=0, hmin=10)
-    new_bal_bbox = Bbox(xleft=415, xright=570, ytop=0, ybot=10)
-    page1_tabbox = Bbox(xleft=25, xright=570, ytop=505, ybot=125)
-    pagex_tabbox = Bbox(xleft=25, xright=570, ytop=700, ybot=84)
-    columns = "78, 130, 413, 489"
-
+    ph_begin_sect = TextLabel(text=TAB_UPPER, height=11)
+    ph_end_section = TextLabel(text=NEW_BAL, height=8.5)
+    
     st_columns = ['post_date', 'description', 'debit', 'credit']
     fl_end_sec_excluded = False
     fl_skip_first_tab_raw = True
@@ -400,11 +375,8 @@ class Card(SocgenStatement):
             self.st_date
         ))
 
-
-
 class SocgenFactory(BaseFactory):
     _scrapers = [Account, Card]
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)

@@ -4,6 +4,7 @@
 import logging
 import datetime
 
+
 import camelot
 import pandas as pd
 import os
@@ -59,8 +60,8 @@ class TableZone:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, end_ybot))
         else:
             self.chunks.append(TableZone.Chunk(begin_page, begin_yup, bottom_margin))
-            for i in range(end_page - begin_page -1):
-                self.chunks.append(TableZone.Chunk(begin_page + i, self.page_height, bottom_margin))
+            for i in range(begin_page+1, end_page):
+                self.chunks.append(TableZone.Chunk(i, self.page_height, bottom_margin))
             if end_ybot < top_margin:
                 self.chunks.append(TableZone.Chunk(end_page, self.page_height, end_ybot))
         logger.debug("Section of account '{}' has {} chuncks".format(account, len(self.chunks)))
@@ -111,7 +112,7 @@ class TableZone:
                 self.table = tables[0].df[1:]
             else:
                 self.table = pd.concat([self.table, tables[0].df[1:]])
-        logger.debug("the table:\n{}".format(self.table.head().to_string()))
+        logger.debug("the table:\n{}".format(self.table.to_string()))
         #camelot.plot(tables[0], kind='grid')
         #plt.show()
         self.clean_table()
@@ -336,7 +337,7 @@ class BaseFactory:
             raise ScraperException(f'"{pdfpath}" file not found')
         if not os.path.isfile(pdfpath):
             raise ScraperException(f'"{pdfpath}" not a file')
-        pdf = pdfquery.PDFQuery(pdfpath)
+        pdf = pdfquery.PDFQuery(pdfpath, laparams={'all_texts':True, 'detect_vertical':True, 'char_margin': 20})
         pdf.load()
 
         for s in cls._scrapers:
@@ -347,6 +348,7 @@ class BaseFactory:
 
 class BaseStatement:
 
+    _STATEMENT_FORMAT = None
     _BANK_SIGNATURE = []
     _TYPE_SIGNATURE = []
 
@@ -355,6 +357,18 @@ class BaseStatement:
 
     @classmethod
     def probe_bank(cls, pdf):
+        if cls._STATEMENT_FORMAT:
+            twidth, theight = cls._STATEMENT_FORMAT
+            page = pdf.get_page(0)
+            dwidth, dheight = page.mediabox[2:]
+            if round(dwidth, 0) !=  twidth or round(dheight, 0) !=  theight:
+                logger.debug("document size do not fit: [{},{}] vs [{}, {}]".format(
+                    round(dwidth, 0),
+                    round(dheight, 0),
+                    twidth,
+                    theight
+                ))
+                return False
         for elem in cls._BANK_SIGNATURE:
             if len(elem.querys(pdf)) == 0:
                 logger.debug("pdf file does not matches bank {}".format(cls.st_bank))
@@ -381,6 +395,7 @@ class BaseStatement:
 
         self.page_height = None
         self.page_width = None
+        self.nb_pages = None
         self.account_number = None
         self.st_date = None
 
@@ -389,6 +404,7 @@ class BaseStatement:
         p = self.pdf.pq('LTPage[page_index="0"]')[0]
         self.page_height = p.layout.height
         self.page_width = p.layout.width
+        self.nb_pages = self.pdf.doc.catalog['Pages'].resolve()['Count']
         self.logger.debug("page format: WxH = {}x{}".format(
             self.page_width,
             self.page_height
