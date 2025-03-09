@@ -38,14 +38,14 @@ class Account(HsbcStatement):
 
     ph_acc_number = TextBox(page=1, bbox="486,700,538,712")
     ph_st_date = TextBox(page=1, bbox="394,651,538,660")
-    ph_ptfsum_section = TextLabel(text="Portfolio Summary", height=10)
-    ph_top_section = TextLabel(text="HSBC Premier Account Transaction History", height=10)
+    ph_ptfsum_section = TextLabel(text="Portfolio Summary", height=8)
+    ph_top_section = TextLabel(text="HSBC Premier Account Transaction History", height=8)
     # consecutive sections containing tables
     ph_sections = {
-        AccountTypes.HKDSAVINGS: TextLabel(text="HKD Savings", height=9),
-        AccountTypes.HKDCURRENT: TextLabel(text="HKD Current", height=9),
-        AccountTypes.FCYSAVINGS: TextLabel(text="Foreign Currency Savings", height=9),
-        AccountTypes.FCYCURRENT: TextLabel(text="Foreign Currency Current", height=9),
+        AccountTypes.HKDSAVINGS: TextLabel(text="HKD Savings", height=7.5),
+        AccountTypes.HKDCURRENT: TextLabel(text="HKD Current", height=7.5),
+        AccountTypes.FCYSAVINGS: TextLabel(text="Foreign Currency Savings", height=7.5),
+        AccountTypes.FCYCURRENT: TextLabel(text="Foreign Currency Current", height=7.5),
     }
     zone_types = {
         AccountTypes.HKDSAVINGS: TableZoneHkd,
@@ -53,8 +53,8 @@ class Account(HsbcStatement):
         AccountTypes.FCYSAVINGS: TableZoneFcy,
         AccountTypes.FCYCURRENT: TableZoneFcy,
     }
-    ph_end_section = TextLabel(text="Total Relationship Balance", height=10)
-    ph_fend_section = TextLabel(text="Important Notice", height=10)
+    ph_end_section = TextLabel(text="Total Relationship Balance", height=8)
+    ph_fend_section = TextLabel(text="Important Notice", height=8)
 
     def __init__(self, pdfpath, pdf = None):
         super().__init__(pdfpath, pdf)

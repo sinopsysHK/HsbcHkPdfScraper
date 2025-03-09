@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name = "hsbcpdf-sinopsys",
-    version = "0.3.3",
+    version = "0.3.4",
     python_requires = ">=3.10",
     author="SinopsysHK",
     author_email="sinofwd@gmail.com",

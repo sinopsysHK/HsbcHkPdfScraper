@@ -337,7 +337,8 @@ class BaseFactory:
             raise ScraperException(f'"{pdfpath}" file not found')
         if not os.path.isfile(pdfpath):
             raise ScraperException(f'"{pdfpath}" not a file')
-        pdf = pdfquery.PDFQuery(pdfpath, laparams={'all_texts':True, 'detect_vertical':True, 'char_margin': 20})
+        pdf = pdfquery.PDFQuery(pdfpath)
+        #pdf = pdfquery.PDFQuery(pdfpath, laparams={'all_texts':True, 'detect_vertical':True, 'char_margin': 20})
         pdf.load()
 
         for s in cls._scrapers:
